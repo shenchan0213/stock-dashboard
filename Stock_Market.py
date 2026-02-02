@@ -7,10 +7,10 @@ import twstock
 import pytz
 
 # --- 頁面設定 ---
-st.set_page_config(page_title="全球戰情室 Pro", layout="wide")
-st.title("數據面板")
+st.set_page_config(page_title="Vesion XI", layout="wide")
+st.title("數據面板 Shen")
 
-# --- 定義期貨與大盤清單 (擴充用於比較) ---
+# --- 定義期貨與大盤清單 ---
 FUTURES_MAP = {
     "台指期 (TX)": "WTX=F",
     "微型台指 (Mini TX)": "WTX=F",
@@ -39,7 +39,7 @@ if 'stock_map' not in st.session_state:
 # --- 側邊欄設定 ---
 st.sidebar.header(" 控制中心")
 market_type = st.sidebar.radio("選擇市場", ["🇹🇼 台灣個股", " 全球期貨/外匯"])
-# 新增 "績效比較" 模式
+# 注意這裡！現在有三個選項了
 mode = st.sidebar.radio("功能模式", [" 即時走勢", "📊 歷史K線 + RSI", "⚖️ 績效比較"])
 
 # --- 輔助函數 ---
@@ -167,7 +167,8 @@ else:
 
 # --- 側邊欄：顯示基本面資訊 ---
 st.sidebar.markdown("---")
-if mode != "⚖️ 績效比較": # 比較模式時隱藏，避免資訊過多
+# 只在非比較模式下顯示基本面
+if mode != "⚖️ 績效比較":
     st.sidebar.subheader("📊 基本面概況")
     if market_type == "🇹🇼 台灣個股":
         with st.spinner("抓取財報數據..."):
@@ -280,7 +281,6 @@ elif mode == "⚖️ 績效比較":
     
     col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
     with col_b1:
-        # 讓使用者選擇常見對照組，或手動輸入
         bench_selection = st.selectbox("選擇對照組", ["台灣加權指數 (TSE)", "S&P 500 (SPX)", "自訂輸入"])
     
     with col_b2:
@@ -296,65 +296,41 @@ elif mode == "⚖️ 績效比較":
 
     if st.button("開始比較"):
         with st.spinner("抓取雙方數據並計算績效..."):
-            # 1. 抓取主要股票數據
             df_main = get_history_data(target_ticker, period=compare_period)
-            # 2. 抓取對照組數據
             df_bench = get_history_data(benchmark_ticker, period=compare_period)
             
             if df_main is not None and df_bench is not None:
-                # 3. 資料合併與對齊 (只保留兩者都有交易的日期)
                 df_merge = pd.merge(df_main[['Date', 'Close']], df_bench[['Date', 'Close']], 
                                     on='Date', suffixes=('_Main', '_Bench'), how='inner')
                 
                 if not df_merge.empty:
-                    # 4. 計算歸一化報酬率 (Normalized Return)
-                    # 公式：(當前價格 / 第一天價格) - 1
                     base_price_main = df_merge['Close_Main'].iloc[0]
                     base_price_bench = df_merge['Close_Bench'].iloc[0]
                     
                     df_merge['Return_Main'] = (df_merge['Close_Main'] / base_price_main - 1) * 100
                     df_merge['Return_Bench'] = (df_merge['Close_Bench'] / base_price_bench - 1) * 100
                     
-                    # 5. 繪圖
                     fig = go.Figure()
-                    
-                    # 主要股票線圖
-                    fig.add_trace(go.Scatter(
-                        x=df_merge['Date'], y=df_merge['Return_Main'],
-                        mode='lines', name=f"{display_name}",
-                        line=dict(color='#00ff00', width=2)
-                    ))
-                    
-                    # 對照組線圖
-                    fig.add_trace(go.Scatter(
-                        x=df_merge['Date'], y=df_merge['Return_Bench'],
-                        mode='lines', name=f"{bench_selection if bench_selection != '自訂輸入' else benchmark_ticker}",
-                        line=dict(color='gray', width=2, dash='dot')
-                    ))
-                    
-                    # 零軸線 (損益兩平線)
+                    fig.add_trace(go.Scatter(x=df_merge['Date'], y=df_merge['Return_Main'],
+                                             mode='lines', name=f"{display_name}",
+                                             line=dict(color='#00ff00', width=2)))
+                    fig.add_trace(go.Scatter(x=df_merge['Date'], y=df_merge['Return_Bench'],
+                                             mode='lines', name=f"{bench_selection if bench_selection != '自訂輸入' else benchmark_ticker}",
+                                             line=dict(color='gray', width=2, dash='dot')))
                     fig.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3)
 
-                    # 找出最後績效以顯示在標題
                     final_ret_main = df_merge['Return_Main'].iloc[-1]
                     final_ret_bench = df_merge['Return_Bench'].iloc[-1]
                     
-                    fig.update_layout(
-                        title=f"績效比較 (區間累計報酬率): {display_name} [{final_ret_main:+.2f}%] vs 對照組 [{final_ret_bench:+.2f}%]",
-                        xaxis_title="日期",
-                        yaxis_title="累計報酬率 (%)",
-                        height=500,
-                        hovermode="x unified" # 游標移上去會同時顯示兩個數值
-                    )
+                    fig.update_layout(title=f"績效比較: {display_name} [{final_ret_main:+.2f}%] vs 對照組 [{final_ret_bench:+.2f}%]",
+                                      xaxis_title="日期", yaxis_title="累計報酬率 (%)", height=500, hovermode="x unified")
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # 額外數據分析
                     diff = final_ret_main - final_ret_bench
                     status = "領先" if diff > 0 else "落後"
                     color = "green" if diff > 0 else "red"
                     st.markdown(f"### 📊 結論：{display_name} 目前 :{color}[**{status}**] 對照組 **{abs(diff):.2f}%**")
-                    
                 else:
                     st.error("日期無法對齊，可能是其中一檔股票該區間無交易資料。")
             else:
