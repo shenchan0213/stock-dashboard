@@ -152,7 +152,7 @@ def get_history_data(ticker, period="6mo", interval="1d"):
 
 
 # --- 核心函數：抓取基本面 ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def get_fundamentals(ticker):
     try:
         stock = yf.Ticker(ticker)
