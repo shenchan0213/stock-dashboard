@@ -6,10 +6,13 @@ from plotly.subplots import make_subplots
 import twstock
 import pytz
 
+
 # --- 1. 頁面基礎設定 & CSS 注入 (軍規化核心) ---
 st.set_page_config(page_title="Vesion XII - TACTICAL", layout="wide")
-
-# 定義戰術風格 CSS
+from openai import OpenAI
+#http://127.0.0.1:1234
+client = OpenAI(base_url="http://127.0.0.1:1234/v1", api_key="lm-studio")
+# 定義風格 CSS
 st.markdown(
     """
     <style>
@@ -20,7 +23,7 @@ st.markdown(
             font-family: 'Roboto Mono', 'Consolas', 'Courier New', monospace;
         }
 
-        /* 標題樣式：軍事印章感 */
+        /* 標題樣式：印章感 */
         h1, h2, h3 {
             text-transform: uppercase;
             letter-spacing: 2px;
@@ -46,7 +49,7 @@ st.markdown(
             border-right: 1px solid #333;
         }
 
-        /* 按鈕：戰術按鈕風格 */
+        /* 按鈕：按鈕風格 */
         div.stButton > button {
             background-color: #1f2833;
             color: #66fcf1;
@@ -84,7 +87,36 @@ FUTURES_MAP = {
     "比特幣 (BTC)": "BTC-USD",
     "美元指數 (DX)": "DX=F",
 }
-
+# --- [新增] 核心函數：AI 戰術分析 (由 4070 Super 驅動) ---
+def get_tactical_analysis(stock_name, price, change, high, low):
+    """
+    呼叫本地 LM Studio 進行分析
+    """
+    try:
+        # 建立提示詞 (Prompt)
+        prompt = f"""
+        [報告] 標的：{stock_name}
+        當前價格：{price}
+        漲跌幅：{change}
+        今日最高/最低：{high} / {low}
+        
+        任務：
+        1. 分析當前多空勢力（Bullish/Bearish）。
+        2. 給出建議（進場/保持/退場）。
+        3. 請用「繁體中文」回答，保持簡約風格，字數 150 字以內。
+        """
+        
+        response = client.chat.completions.create(
+            model="qwen2.5-14b",  # 確保與 LM Studio 裡的名稱一致
+            messages=[
+                {"role": "system", "content": "協助分析股票技術面。"},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3, # 讓分析更冷靜穩定
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f" 中斷：請確認 LM Studio 是否已 Load Model 並 Start Server。\n錯誤訊息：{e}"
 BENCHMARK_MAP = {
     "台灣加權指數 (TSE)": "^TWII",
     "S&P 500 (SPX)": "^GSPC",
@@ -346,7 +378,36 @@ if mode == "即時走勢":
         st.markdown("---")
         fig = plot_intraday_chart(df_intraday, display_name)
         st.plotly_chart(fig, use_container_width=True)
-
+        # --- [新增] AI 分析按鈕區塊 ---
+        st.markdown("---")
+        st.subheader("  AI SUPPORT")
+        
+        col_ai_btn, col_ai_result = st.columns([1, 3])
+        
+        with col_ai_btn:
+            # 這是一個很有質感的按鈕
+            if st.button("📡 REQUEST AI ANALYSIS\n(請求分析)", use_container_width=True):
+                with col_ai_result:
+                    with st.spinner("  CALCULATING... (連線本地大腦)"):
+                        # 呼叫第一步寫好的函式
+                        report = get_tactical_analysis(
+                            display_name, 
+                            f"{last_price:.2f}", 
+                            f"{pct_change:.2f}%", 
+                            f"{df_intraday['High'].max()}", 
+                            f"{df_intraday['Low'].min()}"
+                        )
+                        
+                        # 顯示漂亮的結果框
+                        st.success(" INTELLIGENCE RECEIVED (已接收)")
+                        st.markdown(f"""
+                        <div style="background-color:#1a1a1a; padding:15px; border-left: 5px solid #00ff41; border-radius: 5px;">
+                            <code style="color:#e0e0e0; font-family:'Roboto Mono'; white-space: pre-wrap;">
+                            {report}
+                            </code>
+                        </div>
+                        <p style="font-size:0.8em; color:#666; margin-top:5px;">COMPUTE NODE: LOCAL RTX 4070 SUPER</p>
+                        """, unsafe_allow_html=True)
         if market_type == "🇹🇼 台灣個股":
             st.markdown("###  ORDER BOOK (LEVEL 2)")
             col_bidask, col_info = st.columns([1.5, 1])
