@@ -83,7 +83,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title(" 數據面板 SHEN XII TACTICAL")
+st.title(" 數據面板 SHEN XIII TACTICAL")
 
 # --- 定義期貨與大盤清單 (常數區) ---
 FUTURES_MAP = {
