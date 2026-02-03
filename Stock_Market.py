@@ -104,7 +104,6 @@ if "stock_map" not in st.session_state:
 st.sidebar.markdown("### ⚙️ CONTROL CENTER")
 market_type = st.sidebar.radio("TARGET MARKET", ["🇹🇼 台灣個股", " 全球期貨/外匯"])
 st.sidebar.markdown("---")
-# [修正] 移除 Emoji，回復純文字選項
 mode = st.sidebar.radio("OPERATION MODE", ["即時走勢", "歷史K線 + RSI", "績效比較"])
 
 
@@ -125,24 +124,27 @@ def calculate_rsi(data, window=14):
     return 100 - (100 / (1 + rs))
 
 
-# --- 核心函數：抓取歷史資料 ---
+# --- 核心函數：抓取歷史資料 (包含布林通道計算) ---
 @st.cache_data(ttl=300)
 def get_history_data(ticker, period="6mo", interval="1d"):
     try:
         df = yf.Ticker(ticker).history(period=period, interval=interval)
-        if df.empty:
-            return None
+        if df.empty: return None
         df.reset_index(inplace=True)
-        if "Datetime" in df.columns:
-            df.rename(columns={"Datetime": "Date"}, inplace=True)
+        if "Datetime" in df.columns: df.rename(columns={"Datetime": "Date"}, inplace=True)
         if pd.api.types.is_datetime64_any_dtype(df["Date"]):
             df["Date"] = df["Date"].dt.tz_localize(None)
 
         # 計算技術指標
-        if len(df) > 14:
+        if len(df) > 20: # 確保資料夠長
             df["RSI"] = calculate_rsi(df)
             df["SMA5"] = df["Close"].rolling(5).mean()
             df["SMA20"] = df["Close"].rolling(20).mean()
+            
+            # [新增] 布林通道計算
+            std = df["Close"].rolling(20).std()
+            df["BB_Upper"] = df["SMA20"] + (std * 2)
+            df["BB_Lower"] = df["SMA20"] - (std * 2)
 
         return df
     except:
@@ -189,7 +191,6 @@ def plot_intraday_chart(df, title):
 
     # 配色方案：戰術綠
     line_color = "#00ff41"
-    # fill_color = 'rgba(0, 255, 65, 0.1)' # [修正] 註解掉這行，因為不再填滿
 
     fig = make_subplots(
         rows=2,
@@ -199,7 +200,7 @@ def plot_intraday_chart(df, title):
         row_heights=[0.75, 0.25],
     )
 
-    # 1. 價格線 (Line) -> [修正] 關鍵在這裡！拿掉 fill='tozeroy'
+    # 1. 價格線 (Line)
     fig.add_trace(
         go.Scatter(
             x=df["Datetime"],
@@ -207,7 +208,6 @@ def plot_intraday_chart(df, title):
             mode="lines",
             name="PRICE",
             line=dict(color=line_color, width=2),
-            # 移除了 fill='tozeroy'，讓 Y 軸可以自動聚焦在當前股價範圍
         ),
         row=1,
         col=1,
@@ -226,7 +226,7 @@ def plot_intraday_chart(df, title):
         row=1,
         col=1,
     )
-
+    
     # 3. 成交量 (Volume)
     colors = [
         "#ff0055" if c < o else "#00ff41" for o, c in zip(df["Open"], df["Close"])
@@ -248,18 +248,18 @@ def plot_intraday_chart(df, title):
         xaxis_rangeslider_visible=False,
         showlegend=False,
         paper_bgcolor="rgba(0,0,0,0)",  # 透明背景
-        plot_bgcolor="rgba(0,0,0,0)",  # 透明圖表區
+        plot_bgcolor="rgba(0,0,0,0)",   # 透明圖表區
         font=dict(family="Roboto Mono, monospace", color="#aaa"),  # 字體
     )
 
-    # [關鍵修正] 強制啟用 Y 軸自動縮放，並允許滑鼠拖曳
+    # [關鍵修正] 強制啟用 Y 軸自動縮放
     fig.update_yaxes(autorange=True, fixedrange=False, row=1, col=1)
 
-    # 座標軸設定：去除雜線，只留必要資訊
+    # 座標軸設定
     fig.update_xaxes(showgrid=False, zeroline=False, row=1, col=1)
     fig.update_yaxes(
         showgrid=True, gridcolor="#333", gridwidth=1, row=1, col=1
-    )  # 只有Y軸留暗線
+    )
     fig.update_xaxes(showgrid=False, tickformat="%H:%M", row=2, col=1)
     fig.update_yaxes(showgrid=False, row=2, col=1)
 
@@ -296,7 +296,6 @@ else:
 
 # --- 側邊欄：顯示基本面資訊 ---
 st.sidebar.markdown("---")
-# [修正] 這裡的文字判斷也移除 Emoji
 if mode != "績效比較":
     st.sidebar.subheader(" FUNDAMENTALS")
     if market_type == "🇹🇼 台灣個股":
@@ -324,7 +323,6 @@ if mode != "績效比較":
 
 
 # ================= 模式 1: 即時走勢 =================
-# [修正] 判斷式移除 Emoji，與選單對應
 if mode == "即時走勢":
     df_intraday = get_intraday_data(target_ticker)
 
@@ -358,7 +356,7 @@ if mode == "即時走勢":
                         realtime_stock = twstock.realtime.get(stock_id)
                         if realtime_stock["success"]:
                             info = realtime_stock["realtime"]
-                            # 重新組織五檔顯示，讓它看起來像報價機
+                            # 重新組織五檔顯示
                             ask_data = [
                                 {
                                     "ASK PRICE": info["best_ask_price"][i],
@@ -401,8 +399,7 @@ if mode == "即時走勢":
     else:
         st.warning(f"⚠️ NO SIGNAL: {display_name}")
 
-# ================= 模式 2: 歷史K線 + RSI =================
-# [修正] 判斷式移除 Emoji
+# ================= 模式 2: 歷史K線 + RSI (修正版) =================
 elif mode == "歷史K線 + RSI":
     col_k1, col_k2 = st.sidebar.columns(2)
     with col_k1:
@@ -421,76 +418,51 @@ elif mode == "歷史K線 + RSI":
 
         # K線圖設定
         fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            row_heights=[0.7, 0.3],
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.03, row_heights=[0.7, 0.3],
         )
 
-        # 蠟燭圖 (自訂顏色)
-        fig.add_trace(
-            go.Candlestick(
-                x=df["Date"],
-                open=df["Open"],
-                high=df["High"],
-                low=df["Low"],
-                close=df["Close"],
-                name="OHLC",
-                increasing_line_color="#00ff41",
-                increasing_fillcolor="rgba(0, 255, 65, 0.1)",  # 漲：綠
-                decreasing_line_color="#ff0055",
-                decreasing_fillcolor="rgba(255, 0, 85, 0.1)",  # 跌：紅
-            ),
-            row=1,
-            col=1,
-        )
+        # 1. 蠟燭圖
+        fig.add_trace(go.Candlestick(
+            x=df["Date"], open=df["Open"], high=df["High"],
+            low=df["Low"], close=df["Close"], name="OHLC",
+            increasing_line_color="#00ff41", increasing_fillcolor="rgba(0, 255, 65, 0.1)",
+            decreasing_line_color="#ff0055", decreasing_fillcolor="rgba(255, 0, 85, 0.1)",
+        ), row=1, col=1)
 
-        fig.add_trace(
-            go.Scatter(
-                x=df["Date"],
-                y=df["SMA5"],
-                line=dict(color="#ffbf00", width=1),
-                name="5MA",
-            ),
-            row=1,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df["Date"],
-                y=df["SMA20"],
-                line=dict(color="#00ccff", width=1),
-                name="20MA",
-            ),
-            row=1,
-            col=1,
-        )
+        # 2. 移動平均線
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA5"], line=dict(color="#ffbf00", width=1), name="5MA"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA20"], line=dict(color="#00ccff", width=1), name="20MA"), row=1, col=1)
 
+        # [新增] 3. 布林通道繪圖 (只有當計算成功時才畫)
+        if "BB_Upper" in df.columns:
+            fig.add_trace(go.Scatter(
+                x=df['Date'], y=df['BB_Upper'], 
+                line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dot'), 
+                name='BB Upper'
+            ), row=1, col=1)
+            
+            fig.add_trace(go.Scatter(
+                x=df['Date'], y=df['BB_Lower'], 
+                line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dot'), 
+                name='BB Lower',
+                fill='tonexty', # 填滿上下軌之間
+                fillcolor='rgba(150, 150, 150, 0.05)'
+            ), row=1, col=1)
+
+        # 4. RSI 指標
         if "RSI" in df.columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=df["Date"],
-                    y=df["RSI"],
-                    line=dict(color="#bd00ff", width=2),
-                    name="RSI (14)",
-                ),
-                row=2,
-                col=1,
-            )
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["RSI"], line=dict(color="#bd00ff", width=2), name="RSI (14)"), row=2, col=1)
             fig.add_hline(y=70, line_dash="dot", line_color="#ff0055", row=2, col=1)
             fig.add_hline(y=30, line_dash="dot", line_color="#00ff41", row=2, col=1)
 
-        # 戰術版面配置
+        # 版面配置
         fig.update_layout(
-            height=700,
-            xaxis_rangeslider_visible=False,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
+            height=700, xaxis_rangeslider_visible=False,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family="Roboto Mono, monospace", color="#ccc"),
             showlegend=False,
         )
-
         fig.update_xaxes(showgrid=False, row=1, col=1)
         fig.update_yaxes(showgrid=True, gridcolor="#333", row=1, col=1)
         fig.update_yaxes(showgrid=False, row=2, col=1)
@@ -500,7 +472,6 @@ elif mode == "歷史K線 + RSI":
         st.error("DATA NOT AVAILABLE")
 
 # ================= 模式 3: 績效比較 (Benchmark) =================
-# [修正] 判斷式移除 Emoji
 elif mode == "績效比較":
     st.subheader(f"⚔️ VS MODE: {display_name} vs BENCHMARK")
 
