@@ -6,9 +6,68 @@ from plotly.subplots import make_subplots
 import twstock
 import pytz
 
-# --- 頁面設定 ---
-st.set_page_config(page_title="Vesion XI", layout="wide")
-st.title("數據面板 Shen")
+# --- 1. 頁面基礎設定 & CSS 注入 (軍規化核心) ---
+st.set_page_config(page_title="Vesion XII - TACTICAL", layout="wide")
+
+# 定義戰術風格 CSS
+st.markdown("""
+    <style>
+        /* 全局字體：強制使用等寬字體，模擬終端機 */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+        
+        html, body, [class*="css"] {
+            font-family: 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+        }
+
+        /* 標題樣式：軍事印章感 */
+        h1, h2, h3 {
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 700;
+            color: #e0e0e0;
+        }
+
+        /* 關鍵指標 (Metrics)：CRT 螢幕發光效果 */
+        div[data-testid="stMetricValue"] {
+            color: #00ff41 !important; /* 駭客綠 */
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+            font-weight: bold;
+        }
+        
+        div[data-testid="stMetricLabel"] {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        /* 側邊欄：深色磨砂質感 */
+        section[data-testid="stSidebar"] {
+            background-color: #0b0c10;
+            border-right: 1px solid #333;
+        }
+
+        /* 按鈕：戰術按鈕風格 */
+        div.stButton > button {
+            background-color: #1f2833;
+            color: #66fcf1;
+            border: 1px solid #45a29e;
+            border-radius: 0px; /* 直角設計 */
+        }
+        div.stButton > button:hover {
+            background-color: #45a29e;
+            color: #0b0c10;
+            border-color: #66fcf1;
+        }
+        
+        /* 警告框樣式 */
+        .stAlert {
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            border: 1px solid #333;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title(" 數據面板 SHEN XII version ")
 
 # --- 定義期貨與大盤清單 ---
 FUTURES_MAP = {
@@ -37,17 +96,18 @@ if 'stock_map' not in st.session_state:
     st.session_state.stock_map = {f"{code} {info.name}": code for code, info in twstock.codes.items()}
 
 # --- 側邊欄設定 ---
-st.sidebar.header(" 控制中心")
-market_type = st.sidebar.radio("選擇市場", ["🇹🇼 台灣個股", " 全球期貨/外匯"])
-# 注意這裡！現在有三個選項了
-mode = st.sidebar.radio("功能模式", [" 即時走勢", "📊 歷史K線 + RSI", "⚖️ 績效比較"])
+st.sidebar.markdown("### ⚙️ CONTROL CENTER")
+market_type = st.sidebar.radio("TARGET MARKET", ["🇹🇼 台灣個股", " 全球期貨/外匯"])
+st.sidebar.markdown("---")
+# [修正] 移除 Emoji，回復純文字選項
+mode = st.sidebar.radio("OPERATION MODE", ["即時走勢", "歷史K線 + RSI", "績效比較"])
 
 # --- 輔助函數 ---
 def find_name_by_code(target_code):
     for name_key, code_val in st.session_state.stock_map.items():
         if code_val == target_code:
             return name_key
-    return f"代號 {target_code}"
+    return f"CODE {target_code}"
 
 # --- 技術指標計算函數 (RSI) ---
 def calculate_rsi(data, window=14):
@@ -88,7 +148,7 @@ def get_fundamentals(ticker):
     except:
         return {}
 
-# --- 核心函數：抓取即時走勢 (V9.1 修復版) ---
+# --- 核心函數：抓取即時走勢 ---
 def get_intraday_data(ticker):
     try:
         df = yf.Ticker(ticker).history(period='1d', interval='1m')
@@ -101,9 +161,10 @@ def get_intraday_data(ticker):
     except:
         return pd.DataFrame()
 
-# --- 繪製走勢圖函數 ---
+# --- 繪製走勢圖函數 (風格升級版) ---
 def plot_intraday_chart(df, title):
     df.reset_index(inplace=True)
+    # 時區處理
     if "TW" in title or "台" in title:
         try:
             tw_tz = pytz.timezone('Asia/Taipei')
@@ -113,28 +174,51 @@ def plot_intraday_chart(df, title):
     else:
          df['Datetime'] = df['Datetime'].dt.tz_localize(None)
     
+    # 配色方案：戰術綠
+    line_color = '#00ff41' 
+    fill_color = 'rgba(0, 255, 65, 0.1)'
+    
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                        vertical_spacing=0.05, row_heights=[0.7, 0.3])
+                        vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
+    # 1. 價格線 (Line)
     fig.add_trace(go.Scatter(x=df['Datetime'], y=df['Close'], 
-                             mode='lines', name='成交價',
-                             line=dict(color='#00ff00', width=2),
-                             fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.1)'),
+                             mode='lines', name='PRICE',
+                             line=dict(color=line_color, width=2),
+                             fill='tozeroy', fillcolor=fill_color),
                   row=1, col=1)
     
+    # 2. 均價線 (Avg)
     df['Average'] = df['Close'].rolling(window=30).mean()
     fig.add_trace(go.Scatter(x=df['Datetime'], y=df['Average'], 
-                             mode='lines', name='均價',
-                             line=dict(color='orange', width=1, dash='dot')),
+                             mode='lines', name='AVG',
+                             line=dict(color='#ffbf00', width=1, dash='dot')), # 琥珀色
                   row=1, col=1)
 
-    colors = ['red' if c >= o else 'green' for o, c in zip(df['Open'], df['Close'])]
-    fig.add_trace(go.Bar(x=df['Datetime'], y=df['Volume'], name='量', marker_color=colors),
+    # 3. 成交量 (Volume)
+    colors = ['#ff0055' if c < o else '#00ff41' for o, c in zip(df['Open'], df['Close'])] # 霓虹紅/綠
+    fig.add_trace(go.Bar(x=df['Datetime'], y=df['Volume'], name='VOL', marker_color=colors),
                   row=2, col=1)
 
-    fig.update_layout(title=f"{title} 走勢", height=500, margin=dict(l=10, r=10, t=40, b=10),
-                      xaxis_type="date", xaxis_rangeslider_visible=False, showlegend=False)
-    fig.update_xaxes(tickformat="%H:%M", row=2, col=1)
+    # 4. 版面設定 (Layout) - 這是美感的關鍵
+    fig.update_layout(
+        title=dict(text=f"<b>{title} // INTRADAY</b>", font=dict(size=20, color='#e0e0e0')),
+        height=500, 
+        margin=dict(l=10, r=10, t=50, b=10),
+        xaxis_type="date", 
+        xaxis_rangeslider_visible=False, 
+        showlegend=False,
+        paper_bgcolor='rgba(0,0,0,0)', # 透明背景
+        plot_bgcolor='rgba(0,0,0,0)',  # 透明圖表區
+        font=dict(family="Roboto Mono, monospace", color="#aaa") # 字體
+    )
+    
+    # 座標軸設定：去除雜線，只留必要資訊
+    fig.update_xaxes(showgrid=False, zeroline=False, row=1, col=1)
+    fig.update_yaxes(showgrid=True, gridcolor='#333', gridwidth=1, row=1, col=1) # 只有Y軸留暗線
+    fig.update_xaxes(showgrid=False, tickformat="%H:%M", row=2, col=1)
+    fig.update_yaxes(showgrid=False, row=2, col=1)
+
     return fig
 
 # --- 搜尋邏輯 ---
@@ -142,12 +226,12 @@ if market_type == "🇹🇼 台灣個股":
     search_list = list(st.session_state.stock_map.keys())
     col_s1, col_s2 = st.sidebar.columns([2, 1])
     with col_s1:
-        search_selection = st.selectbox("搜尋股票", ["自訂輸入"] + search_list)
+        search_selection = st.selectbox("SEARCH", ["自訂輸入"] + search_list)
     with col_s2:
         default_input = "2330"
         if search_selection != "自訂輸入":
             default_input = st.session_state.stock_map[search_selection]
-        manual_input = st.text_input("代號", value=default_input)
+        manual_input = st.text_input("CODE", value=default_input)
     
     stock_id = manual_input
     target_ticker = f"{stock_id}.TW"
@@ -160,18 +244,18 @@ if market_type == "🇹🇼 台灣個股":
         display_name = find_name_by_code(stock_id)
 
 else:
-    future_name = st.sidebar.selectbox("選擇商品", list(FUTURES_MAP.keys()))
+    future_name = st.sidebar.selectbox("ASSET", list(FUTURES_MAP.keys()))
     target_ticker = FUTURES_MAP[future_name]
     display_name = future_name
     stock_id = target_ticker 
 
 # --- 側邊欄：顯示基本面資訊 ---
 st.sidebar.markdown("---")
-# 只在非比較模式下顯示基本面
-if mode != "⚖️ 績效比較":
-    st.sidebar.subheader("📊 基本面概況")
+# [修正] 這裡的文字判斷也移除 Emoji
+if mode != "績效比較":
+    st.sidebar.subheader(" FUNDAMENTALS")
     if market_type == "🇹🇼 台灣個股":
-        with st.spinner("抓取財報數據..."):
+        with st.spinner("ACCESSING DATABASE..."):
             info = get_fundamentals(target_ticker)
             if info:
                 pe_ratio = info.get('trailingPE', 'N/A')
@@ -179,123 +263,149 @@ if mode != "⚖️ 績效比較":
                 eps = info.get('trailingEps', 'N/A')
                 yield_str = f"{dividend_yield*100:.2f}%" if isinstance(dividend_yield, (int, float)) else "N/A"
                 
-                st.sidebar.metric("本益比 (PE)", f"{pe_ratio}")
-                st.sidebar.metric("每股盈餘 (EPS)", f"{eps}")
-                st.sidebar.metric("殖利率 (Yield)", f"{yield_str}")
+                # 使用 columns 讓資訊更緊湊
+                c1, c2 = st.sidebar.columns(2)
+                c1.metric("PE", f"{pe_ratio}")
+                c2.metric("EPS", f"{eps}")
+                st.sidebar.metric("Yield", f"{yield_str}")
             else:
-                st.sidebar.info("無基本面資料")
+                st.sidebar.info("NO DATA FOUND")
     else:
-        st.sidebar.info("期貨商品無基本面數據")
+        st.sidebar.info("N/A FOR FUTURES")
 
 
 # ================= 模式 1: 即時走勢 =================
-if mode == " 即時走勢":
+# [修正] 判斷式移除 Emoji，與選單對應
+if mode == "即時走勢":
     df_intraday = get_intraday_data(target_ticker)
     
     if not df_intraday.empty:
         last_price = df_intraday['Close'].iloc[-1]
         first_open = df_intraday['Open'].iloc[0]
         change = last_price - first_open
+        pct_change = (change / first_open) * 100
         last_time = df_intraday.index[-1]
-        time_str = last_time.strftime('%Y-%m-%d %H:%M')
+        time_str = last_time.strftime('%H:%M:%S')
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric(f"{display_name}", f"{last_price:.2f}", f"{change:.2f}")
-        col2.metric("最高", f"{df_intraday['High'].max():.2f}")
-        col3.metric("最低", f"{df_intraday['Low'].min():.2f}")
+        # 抬頭顯示器 (HUD) 風格
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric(f"PRICE", f"{last_price:.2f}", f"{change:.2f}")
+        col2.metric("CHANGE %", f"{pct_change:.2f}%")
+        col3.metric("HIGH", f"{df_intraday['High'].max():.2f}")
+        col4.metric("LOW", f"{df_intraday['Low'].min():.2f}")
         
-        st.caption(f"最後更新時間: {time_str}")
+        st.caption(f" LAST UPDATED: {time_str} | SYSTEM: ONLINE")
         
-        st.markdown("### 📈 分時走勢圖")
+        st.markdown("---")
         fig = plot_intraday_chart(df_intraday, display_name)
         st.plotly_chart(fig, use_container_width=True)
 
         if market_type == "🇹🇼 台灣個股":
-            st.markdown("---")
-            col_bidask, col_info = st.columns([1, 2])
+            st.markdown("###  ORDER BOOK (LEVEL 2)")
+            col_bidask, col_info = st.columns([1.5, 1])
             with col_bidask:
-                st.markdown("###  五檔報價")
                 try:
-                    with st.spinner("連線證交所..."):
+                    with st.spinner("CONNECTING TWSE..."):
                         realtime_stock = twstock.realtime.get(stock_id)
                         if realtime_stock['success']:
                             info = realtime_stock['realtime']
-                            ask_data = [{"委賣價": info['best_ask_price'][i], "張數": info['best_ask_volume'][i]} for i in range(len(info['best_ask_price']))]
-                            bid_data = [{"委買價": info['best_bid_price'][i], "張數": info['best_bid_volume'][i]} for i in range(len(info['best_bid_price']))]
+                            # 重新組織五檔顯示，讓它看起來像報價機
+                            ask_data = [{"ASK PRICE": info['best_ask_price'][i], "VOL": info['best_ask_volume'][i]} for i in range(len(info['best_ask_price']))]
+                            bid_data = [{"BID PRICE": info['best_bid_price'][i], "VOL": info['best_bid_volume'][i]} for i in range(len(info['best_bid_price']))]
                             
-                            st.markdown("**賣出**")
+                            # 合併顯示
+                            st.markdown("**SELL (ASK)**")
                             st.dataframe(pd.DataFrame(ask_data[::-1]), hide_index=True, use_container_width=True)
-                            st.markdown("**買進**")
+                            st.markdown("**BUY (BID)**")
                             st.dataframe(pd.DataFrame(bid_data), hide_index=True, use_container_width=True)
                         else:
-                            st.warning("無五檔資料")
+                            st.warning("DATA LINK FAILED")
                 except:
-                    st.error("連線逾時")
+                    st.error("CONNECTION TIMEOUT")
             with col_info:
-                st.info("💡 提示：走勢圖使用 Yahoo Finance，五檔使用證交所直連。")
+                st.info("ℹ️ SOURCE:\n- CHART: YAHOO FINANCE API\n- ORDER BOOK: TWSE DIRECT LINK")
         else:
-            st.info(f"💡 {display_name} 為國際商品，無五檔報價。")
+            st.info(f"ℹ️ {display_name} : INTERNATIONAL MARKET DATA ONLY")
 
     else:
-        st.warning(f"目前抓不到 {display_name} 的即時資料。")
+        st.warning(f"⚠️ NO SIGNAL: {display_name}")
 
 # ================= 模式 2: 歷史K線 + RSI =================
-elif mode == "📊 歷史K線 + RSI":
+# [修正] 判斷式移除 Emoji
+elif mode == "歷史K線 + RSI":
     col_k1, col_k2 = st.sidebar.columns(2)
     with col_k1:
-        period = st.selectbox("K線期間", ["3mo", "6mo", "1y", "3y", "5y"], index=1)
+        period = st.selectbox("PERIOD", ["3mo", "6mo", "1y", "3y", "5y"], index=1)
     with col_k2:
-        interval_ui = st.selectbox("K線頻率", ["日K", "週K", "月K"], index=0)
+        interval_ui = st.selectbox("INTERVAL", ["日K", "週K", "月K"], index=0)
     
     interval_map = {"日K": "1d", "週K": "1wk", "月K": "1mo"}
     interval = interval_map[interval_ui]
     
-    with st.spinner("載入歷史數據..."):
+    with st.spinner("LOADING HISTORICAL DATA..."):
         df = get_history_data(target_ticker, period, interval)
     
     if df is not None:
-        st.subheader(f"{display_name} - 技術分析")
+        st.subheader(f"{display_name} // TECHNICAL ANALYSIS")
+        
+        # K線圖設定
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                            vertical_spacing=0.05, row_heights=[0.7, 0.3])
+                            vertical_spacing=0.03, row_heights=[0.7, 0.3])
         
-        fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'],
-                        low=df['Low'], close=df['Close'], name='K線'), row=1, col=1)
+        # 蠟燭圖 (自訂顏色)
+        fig.add_trace(go.Candlestick(x=df['Date'],
+                        open=df['Open'], high=df['High'],
+                        low=df['Low'], close=df['Close'],
+                        name='OHLC',
+                        increasing_line_color='#00ff41', increasing_fillcolor='rgba(0, 255, 65, 0.1)', # 漲：綠
+                        decreasing_line_color='#ff0055', decreasing_fillcolor='rgba(255, 0, 85, 0.1)'  # 跌：紅
+                        ), row=1, col=1)
         
-        fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA5'], line=dict(color='orange', width=1), name='5MA'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA20'], line=dict(color='purple', width=1), name='20MA'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA5'], line=dict(color='#ffbf00', width=1), name='5MA'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA20'], line=dict(color='#00ccff', width=1), name='20MA'), row=1, col=1)
 
         if 'RSI' in df.columns:
             fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], 
-                                     line=dict(color='#00ccff', width=2), name='RSI (14)'), row=2, col=1)
-            fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
-            fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=1)
+                                     line=dict(color='#bd00ff', width=2), name='RSI (14)'), row=2, col=1)
+            fig.add_hline(y=70, line_dash="dot", line_color="#ff0055", row=2, col=1)
+            fig.add_hline(y=30, line_dash="dot", line_color="#00ff41", row=2, col=1)
 
-        fig.update_layout(height=600, xaxis_rangeslider_visible=False)
+        # 戰術版面配置
+        fig.update_layout(height=700, xaxis_rangeslider_visible=False,
+                          paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                          font=dict(family="Roboto Mono, monospace", color="#ccc"),
+                          showlegend=False)
+        
+        fig.update_xaxes(showgrid=False, row=1, col=1)
+        fig.update_yaxes(showgrid=True, gridcolor='#333', row=1, col=1)
+        fig.update_yaxes(showgrid=False, row=2, col=1)
+        
         st.plotly_chart(fig, use_container_width=True)     
     else:
-        st.error("查無歷史資料")
+        st.error("DATA NOT AVAILABLE")
 
 # ================= 模式 3: 績效比較 (Benchmark) =================
-elif mode == "⚖️ 績效比較":
-    st.subheader(f"⚖️ 績效比較：{display_name} vs 對照組")
+# [修正] 判斷式移除 Emoji
+elif mode == "績效比較":
+    st.subheader(f"⚔️ VS MODE: {display_name} vs BENCHMARK")
     
     col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
     with col_b1:
-        bench_selection = st.selectbox("選擇對照組", ["台灣加權指數 (TSE)", "S&P 500 (SPX)", "自訂輸入"])
+        bench_selection = st.selectbox("OPPONENT", ["台灣加權指數 (TSE)", "S&P 500 (SPX)", "自訂輸入"])
     
     with col_b2:
         if bench_selection == "自訂輸入":
-            bench_input = st.text_input("輸入對照代號 (如 2330.TW)", value="^TWII")
+            bench_input = st.text_input("OPPONENT CODE", value="^TWII")
             benchmark_ticker = bench_input.upper()
         else:
             benchmark_ticker = BENCHMARK_MAP[bench_selection]
-            st.text_input("對照代號", value=benchmark_ticker, disabled=True)
+            st.text_input("CODE", value=benchmark_ticker, disabled=True)
             
     with col_b3:
-        compare_period = st.selectbox("比較期間", ["3mo", "6mo", "1y", "3y", "5y", "ytd"], index=2)
+        compare_period = st.selectbox("TIMEFRAME", ["3mo", "6mo", "1y", "3y", "5y", "ytd"], index=2)
 
-    if st.button("開始比較"):
-        with st.spinner("抓取雙方數據並計算績效..."):
+    if st.button("INITIATE COMPARISON"):
+        with st.spinner("CALCULATING ALPHA..."):
             df_main = get_history_data(target_ticker, period=compare_period)
             df_bench = get_history_data(benchmark_ticker, period=compare_period)
             
@@ -313,25 +423,36 @@ elif mode == "⚖️ 績效比較":
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=df_merge['Date'], y=df_merge['Return_Main'],
                                              mode='lines', name=f"{display_name}",
-                                             line=dict(color='#00ff00', width=2)))
+                                             line=dict(color='#00ff41', width=3))) # 主角：亮綠
                     fig.add_trace(go.Scatter(x=df_merge['Date'], y=df_merge['Return_Bench'],
-                                             mode='lines', name=f"{bench_selection if bench_selection != '自訂輸入' else benchmark_ticker}",
-                                             line=dict(color='gray', width=2, dash='dot')))
-                    fig.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3)
+                                             mode='lines', name=f"BENCHMARK",
+                                             line=dict(color='#666', width=2, dash='dot'))) # 對手：暗灰
+                    fig.add_hline(y=0, line_dash="solid", line_color="#fff", opacity=0.2)
 
                     final_ret_main = df_merge['Return_Main'].iloc[-1]
                     final_ret_bench = df_merge['Return_Bench'].iloc[-1]
                     
-                    fig.update_layout(title=f"績效比較: {display_name} [{final_ret_main:+.2f}%] vs 對照組 [{final_ret_bench:+.2f}%]",
-                                      xaxis_title="日期", yaxis_title="累計報酬率 (%)", height=500, hovermode="x unified")
+                    # 戰術版面
+                    fig.update_layout(title=f"PERFORMANCE DELTA",
+                                      yaxis_title="RETURN (%)", height=500, hovermode="x unified",
+                                      paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                      font=dict(family="Roboto Mono, monospace", color="#ccc"),
+                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#333'))
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
                     diff = final_ret_main - final_ret_bench
-                    status = "領先" if diff > 0 else "落後"
-                    color = "green" if diff > 0 else "red"
-                    st.markdown(f"### 📊 結論：{display_name} 目前 :{color}[**{status}**] 對照組 **{abs(diff):.2f}%**")
+                    status = "LEADING" if diff > 0 else "LAGGING"
+                    color_code = "#00ff41" if diff > 0 else "#ff0055" # 綠 / 紅
+                    
+                    # 結論區塊
+                    st.markdown(f"""
+                    <div style="border: 1px solid {color_code}; padding: 20px; border-radius: 5px;">
+                        <h3 style="color: {color_code}; margin:0;">STATUS: {status}</h3>
+                        <p style="margin:0;">DELTA: <b>{diff:+.2f}%</b></p>
+                    </div>
+                    """, unsafe_allow_html=True)
                 else:
-                    st.error("日期無法對齊，可能是其中一檔股票該區間無交易資料。")
+                    st.error("TIMEFRAME MISMATCH ERROR")
             else:
-                st.error("抓取資料失敗，請確認代號是否正確。")
+                st.error("DATA FETCH FAILED")
