@@ -6,13 +6,10 @@ from plotly.subplots import make_subplots
 import twstock
 import pytz
 
+# --- 1. 頁面基礎設定 & CSS 注入 (核心) ---
+st.set_page_config(page_title="Version XIII - TACTICAL", layout="wide")
 
-# --- 1. 頁面基礎設定 & CSS 注入 (軍規化核心) ---
-st.set_page_config(page_title="Vesion XII - TACTICAL", layout="wide")
-from openai import OpenAI
-#http://127.0.0.1:1234
-client = OpenAI(base_url="http://127.0.0.1:1234/v1", api_key="lm-studio")
-# 定義風格 CSS
+# 定義風格  (風格)
 st.markdown(
     """
     <style>
@@ -21,6 +18,8 @@ st.markdown(
         
         html, body, [class*="css"] {
             font-family: 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+            background-color: #0e0e0e; /* 更深邃的黑色背景 */
+            color: #e0e0e0;
         }
 
         /* 標題樣式：印章感 */
@@ -29,6 +28,8 @@ st.markdown(
             letter-spacing: 2px;
             font-weight: 700;
             color: #e0e0e0;
+            border-left: 5px solid #00ff41; /* 標題左側裝飾線 */
+            padding-left: 10px;
         }
 
         /* 關鍵指標 (Metrics)：CRT 螢幕發光效果 */
@@ -36,32 +37,41 @@ st.markdown(
             color: #00ff41 !important; /* 駭客綠 */
             text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
             font-weight: bold;
+            font-family: 'Roboto Mono', monospace;
         }
         
         div[data-testid="stMetricLabel"] {
             color: #888;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
         }
 
         /* 側邊欄：深色磨砂質感 */
         section[data-testid="stSidebar"] {
-            background-color: #0b0c10;
+            background-color: #050505;
             border-right: 1px solid #333;
         }
 
-        /* 按鈕：按鈕風格 */
+        /* 按鈕：戰術按鈕風格 */
         div.stButton > button {
             background-color: #1f2833;
             color: #66fcf1;
             border: 1px solid #45a29e;
-            border-radius: 0px; /* 直角設計 */
+            border-radius: 2px; 
+            transition: all 0.3s ease;
         }
         div.stButton > button:hover {
             background-color: #45a29e;
             color: #0b0c10;
             border-color: #66fcf1;
+            box-shadow: 0 0 10px #45a29e;
         }
         
+        /* 表格樣式優化 */
+        div[data-testid="stDataFrame"] {
+            border: 1px solid #333;
+        }
+
         /* 警告框樣式 */
         .stAlert {
             background-color: #1a1a1a;
@@ -73,9 +83,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title(" 數據面板 SHEN XII version ")
+st.title(" 數據面板 SHEN XII TACTICAL")
 
-# --- 定義期貨與大盤清單 ---
+# --- 定義期貨與大盤清單 (常數區) ---
 FUTURES_MAP = {
     "台指期 (TX)": "WTX=F",
     "微型台指 (Mini TX)": "WTX=F",
@@ -87,36 +97,7 @@ FUTURES_MAP = {
     "比特幣 (BTC)": "BTC-USD",
     "美元指數 (DX)": "DX=F",
 }
-# --- [新增] 核心函數：AI 戰術分析 (由 4070 Super 驅動) ---
-def get_tactical_analysis(stock_name, price, change, high, low):
-    """
-    呼叫本地 LM Studio 進行分析
-    """
-    try:
-        # 建立提示詞 (Prompt)
-        prompt = f"""
-        [報告] 標的：{stock_name}
-        當前價格：{price}
-        漲跌幅：{change}
-        今日最高/最低：{high} / {low}
-        
-        任務：
-        1. 分析當前多空勢力（Bullish/Bearish）。
-        2. 給出建議（進場/保持/退場）。
-        3. 請用「繁體中文」回答，保持簡約風格，字數 150 字以內。
-        """
-        
-        response = client.chat.completions.create(
-            model="qwen2.5-14b",  # 確保與 LM Studio 裡的名稱一致
-            messages=[
-                {"role": "system", "content": "協助分析股票技術面。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3, # 讓分析更冷靜穩定
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f" 中斷：請確認 LM Studio 是否已 Load Model 並 Start Server。\n錯誤訊息：{e}"
+
 BENCHMARK_MAP = {
     "台灣加權指數 (TSE)": "^TWII",
     "S&P 500 (SPX)": "^GSPC",
@@ -173,7 +154,7 @@ def get_history_data(ticker, period="6mo", interval="1d"):
             df["SMA5"] = df["Close"].rolling(5).mean()
             df["SMA20"] = df["Close"].rolling(20).mean()
             
-            # [新增] 布林通道計算
+            # 布林通道計算
             std = df["Close"].rolling(20).std()
             df["BB_Upper"] = df["SMA20"] + (std * 2)
             df["BB_Lower"] = df["SMA20"] - (std * 2)
@@ -183,7 +164,7 @@ def get_history_data(ticker, period="6mo", interval="1d"):
         return None
 
 
-# --- 核心函數：抓取基本面 ---
+# --- 核心函數：抓取基本面 (優化 Yield 顯示邏輯) ---
 @st.cache_data(ttl=60)
 def get_fundamentals(ticker):
     try:
@@ -208,7 +189,7 @@ def get_intraday_data(ticker):
         return pd.DataFrame()
 
 
-# --- 繪製走勢圖函數 (修正版：解決高價股變成一直線的問題) ---
+# --- 繪製走勢圖函數 ---
 def plot_intraday_chart(df, title):
     df.reset_index(inplace=True)
     # 時區處理
@@ -240,6 +221,8 @@ def plot_intraday_chart(df, title):
             mode="lines",
             name="PRICE",
             line=dict(color=line_color, width=2),
+            fill='tozeroy', # 增加下方陰影，提升戰術感
+            fillcolor='rgba(0, 255, 65, 0.05)' 
         ),
         row=1,
         col=1,
@@ -254,7 +237,7 @@ def plot_intraday_chart(df, title):
             mode="lines",
             name="AVG",
             line=dict(color="#ffbf00", width=1, dash="dot"),
-        ),  # 琥珀色
+        ),
         row=1,
         col=1,
     )
@@ -262,7 +245,7 @@ def plot_intraday_chart(df, title):
     # 3. 成交量 (Volume)
     colors = [
         "#ff0055" if c < o else "#00ff41" for o, c in zip(df["Open"], df["Close"])
-    ]  # 霓虹紅/綠
+    ]
     fig.add_trace(
         go.Bar(x=df["Datetime"], y=df["Volume"], name="VOL", marker_color=colors),
         row=2,
@@ -279,19 +262,14 @@ def plot_intraday_chart(df, title):
         xaxis_type="date",
         xaxis_rangeslider_visible=False,
         showlegend=False,
-        paper_bgcolor="rgba(0,0,0,0)",  # 透明背景
-        plot_bgcolor="rgba(0,0,0,0)",   # 透明圖表區
-        font=dict(family="Roboto Mono, monospace", color="#aaa"),  # 字體
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Roboto Mono, monospace", color="#aaa"),
     )
 
-    # [關鍵修正] 強制啟用 Y 軸自動縮放
     fig.update_yaxes(autorange=True, fixedrange=False, row=1, col=1)
-
-    # 座標軸設定
     fig.update_xaxes(showgrid=False, zeroline=False, row=1, col=1)
-    fig.update_yaxes(
-        showgrid=True, gridcolor="#333", gridwidth=1, row=1, col=1
-    )
+    fig.update_yaxes(showgrid=True, gridcolor="#333", gridwidth=1, row=1, col=1)
     fig.update_xaxes(showgrid=False, tickformat="%H:%M", row=2, col=1)
     fig.update_yaxes(showgrid=False, row=2, col=1)
 
@@ -326,35 +304,43 @@ else:
     display_name = future_name
     stock_id = target_ticker
 
-# --- 側邊欄：顯示基本面資訊 ---
+# --- 側邊欄：顯示基本面資訊 (優化版) ---
 st.sidebar.markdown("---")
 if mode != "績效比較":
-    st.sidebar.subheader(" FUNDAMENTALS")
+    st.sidebar.subheader("📊 FUNDAMENTALS")
     if market_type == "🇹🇼 台灣個股":
         with st.spinner("ACCESSING DATABASE..."):
             info = get_fundamentals(target_ticker)
             if info:
                 pe_ratio = info.get("trailingPE", "N/A")
-                dividend_yield = info.get("dividendYield", 0)
                 eps = info.get("trailingEps", "N/A")
-                yield_str = (
-                    f"{dividend_yield*100:.2f}%"
-                    if isinstance(dividend_yield, (int, float))
-                    else "N/A"
-                )
+                
+                # [優化] 殖利率防呆機制
+                raw_yield = info.get("dividendYield", 0)
+                if raw_yield is None:
+                    yield_str = "N/A"
+                elif raw_yield > 1: 
+                    # 如果 API 回傳 1.16，可能是已經乘過 100 的值 (異常狀況)
+                    yield_str = f"{raw_yield:.2f}%" 
+                else:
+                    # 正常小數點 (0.0116 -> 1.16%)
+                    yield_str = f"{raw_yield*100:.2f}%"
 
-                # 使用 columns 讓資訊更緊湊
+                # 格式化 PE 與 EPS
+                pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "N/A"
+                eps_str = f"{eps:.2f}" if isinstance(eps, (int, float)) else "N/A"
+
                 c1, c2 = st.sidebar.columns(2)
-                c1.metric("PE", f"{pe_ratio}")
-                c2.metric("EPS", f"{eps}")
-                st.sidebar.metric("Yield", f"{yield_str}")
+                c1.metric("PE", pe_str)
+                c2.metric("EPS", eps_str)
+                st.sidebar.metric("YIELD", yield_str)
             else:
                 st.sidebar.info("NO DATA FOUND")
     else:
         st.sidebar.info("N/A FOR FUTURES")
 
 
-# ================= 模式 1: 即時走勢 =================
+# ================= 模式 1: 即時走勢 (Clean Version) =================
 if mode == "即時走勢":
     df_intraday = get_intraday_data(target_ticker)
 
@@ -368,56 +354,31 @@ if mode == "即時走勢":
 
         # 抬頭顯示器 (HUD) 風格
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric(f"PRICE", f"{last_price:.2f}", f"{change:.2f}")
+        col1.metric("PRICE", f"{last_price:.2f}", f"{change:.2f}")
         col2.metric("CHANGE %", f"{pct_change:.2f}%")
         col3.metric("HIGH", f"{df_intraday['High'].max():.2f}")
         col4.metric("LOW", f"{df_intraday['Low'].min():.2f}")
 
-        st.caption(f" LAST UPDATED: {time_str} | SYSTEM: ONLINE")
+        st.caption(f"📡 LAST UPDATED: {time_str} | SYSTEM: ONLINE")
 
         st.markdown("---")
         fig = plot_intraday_chart(df_intraday, display_name)
         st.plotly_chart(fig, use_container_width=True)
-        # --- [新增] AI 分析按鈕區塊 ---
-        st.markdown("---")
-        st.subheader("  AI SUPPORT")
         
-        col_ai_btn, col_ai_result = st.columns([1, 3])
-        
-        with col_ai_btn:
-            # 這是一個很有質感的按鈕
-            if st.button("📡 REQUEST AI ANALYSIS\n(請求分析)", use_container_width=True):
-                with col_ai_result:
-                    with st.spinner("  CALCULATING... (連線本地大腦)"):
-                        # 呼叫第一步寫好的函式
-                        report = get_tactical_analysis(
-                            display_name, 
-                            f"{last_price:.2f}", 
-                            f"{pct_change:.2f}%", 
-                            f"{df_intraday['High'].max()}", 
-                            f"{df_intraday['Low'].min()}"
-                        )
-                        
-                        # 顯示漂亮的結果框
-                        st.success(" INTELLIGENCE RECEIVED (已接收)")
-                        st.markdown(f"""
-                        <div style="background-color:#1a1a1a; padding:15px; border-left: 5px solid #00ff41; border-radius: 5px;">
-                            <code style="color:#e0e0e0; font-family:'Roboto Mono'; white-space: pre-wrap;">
-                            {report}
-                            </code>
-                        </div>
-                        <p style="font-size:0.8em; color:#666; margin-top:5px;">COMPUTE NODE: LOCAL RTX 4070 SUPER</p>
-                        """, unsafe_allow_html=True)
+        # [移除] AI SUPPORT 區塊已刪除，保持畫面簡潔
+
         if market_type == "🇹🇼 台灣個股":
-            st.markdown("###  ORDER BOOK (LEVEL 2)")
+            st.markdown("### 📉 ORDER BOOK (LEVEL 2)")
             col_bidask, col_info = st.columns([1.5, 1])
             with col_bidask:
                 try:
-                    with st.spinner("CONNECTING TWSE..."):
-                        realtime_stock = twstock.realtime.get(stock_id)
-                        if realtime_stock["success"]:
-                            info = realtime_stock["realtime"]
-                            # 重新組織五檔顯示
+                    # twstock 的 realtime 有時會不穩定，增加保護
+                    realtime_stock = twstock.realtime.get(stock_id)
+                    if realtime_stock and realtime_stock.get("success"):
+                        info = realtime_stock["realtime"]
+                        
+                        # 確保資料存在才處理
+                        if "best_ask_price" in info and "best_bid_price" in info:
                             ask_data = [
                                 {
                                     "ASK PRICE": info["best_ask_price"][i],
@@ -447,9 +408,11 @@ if mode == "即時走勢":
                                 use_container_width=True,
                             )
                         else:
-                            st.warning("DATA LINK FAILED")
-                except:
-                    st.error("CONNECTION TIMEOUT")
+                            st.warning("ORDER BOOK DATA EMPTY (MARKET CLOSED?)")
+                    else:
+                        st.warning("DATA LINK FAILED (TWSE)")
+                except Exception as e:
+                    st.error(f"CONNECTION ERROR: {str(e)}")
             with col_info:
                 st.info(
                     "ℹ️ SOURCE:\n- CHART: YAHOO FINANCE API\n- ORDER BOOK: TWSE DIRECT LINK"
@@ -458,9 +421,9 @@ if mode == "即時走勢":
             st.info(f"ℹ️ {display_name} : INTERNATIONAL MARKET DATA ONLY")
 
     else:
-        st.warning(f"⚠️ NO SIGNAL: {display_name}")
+        st.warning(f"⚠️ NO SIGNAL: {display_name} (請確認代號或市場開盤狀態)")
 
-# ================= 模式 2: 歷史K線 + RSI (修正版) =================
+# ================= 模式 2: 歷史K線 + RSI =================
 elif mode == "歷史K線 + RSI":
     col_k1, col_k2 = st.sidebar.columns(2)
     with col_k1:
@@ -495,7 +458,7 @@ elif mode == "歷史K線 + RSI":
         fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA5"], line=dict(color="#ffbf00", width=1), name="5MA"), row=1, col=1)
         fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA20"], line=dict(color="#00ccff", width=1), name="20MA"), row=1, col=1)
 
-        # [新增] 3. 布林通道繪圖 (只有當計算成功時才畫)
+        # 3. 布林通道
         if "BB_Upper" in df.columns:
             fig.add_trace(go.Scatter(
                 x=df['Date'], y=df['BB_Upper'], 
@@ -507,7 +470,7 @@ elif mode == "歷史K線 + RSI":
                 x=df['Date'], y=df['BB_Lower'], 
                 line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dot'), 
                 name='BB Lower',
-                fill='tonexty', # 填滿上下軌之間
+                fill='tonexty',
                 fillcolor='rgba(150, 150, 150, 0.05)'
             ), row=1, col=1)
 
@@ -517,7 +480,6 @@ elif mode == "歷史K線 + RSI":
             fig.add_hline(y=70, line_dash="dot", line_color="#ff0055", row=2, col=1)
             fig.add_hline(y=30, line_dash="dot", line_color="#00ff41", row=2, col=1)
 
-        # 版面配置
         fig.update_layout(
             height=700, xaxis_rangeslider_visible=False,
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -589,7 +551,7 @@ elif mode == "績效比較":
                             name=f"{display_name}",
                             line=dict(color="#00ff41", width=3),
                         )
-                    )  # 主角：亮綠
+                    )
                     fig.add_trace(
                         go.Scatter(
                             x=df_merge["Date"],
@@ -598,7 +560,7 @@ elif mode == "績效比較":
                             name=f"BENCHMARK",
                             line=dict(color="#666", width=2, dash="dot"),
                         )
-                    )  # 對手：暗灰
+                    )
                     fig.add_hline(
                         y=0, line_dash="solid", line_color="#fff", opacity=0.2
                     )
@@ -606,7 +568,6 @@ elif mode == "績效比較":
                     final_ret_main = df_merge["Return_Main"].iloc[-1]
                     final_ret_bench = df_merge["Return_Bench"].iloc[-1]
 
-                    # 戰術版面
                     fig.update_layout(
                         title=f"PERFORMANCE DELTA",
                         yaxis_title="RETURN (%)",
@@ -623,9 +584,8 @@ elif mode == "績效比較":
 
                     diff = final_ret_main - final_ret_bench
                     status = "LEADING" if diff > 0 else "LAGGING"
-                    color_code = "#00ff41" if diff > 0 else "#ff0055"  # 綠 / 紅
+                    color_code = "#00ff41" if diff > 0 else "#ff0055"
 
-                    # 結論區塊
                     st.markdown(
                         f"""
                     <div style="border: 1px solid {color_code}; padding: 20px; border-radius: 5px;">
@@ -636,6 +596,6 @@ elif mode == "績效比較":
                         unsafe_allow_html=True,
                     )
                 else:
-                    st.error("TIMEFRAME MISMATCH ERROR")
+                    st.error("TIMEFRAME MISMATCH ERROR (資料區間不匹配)")
             else:
-                st.error("DATA FETCH FAILED")
+                st.error("DATA FETCH FAILED (無法獲取資料)")
