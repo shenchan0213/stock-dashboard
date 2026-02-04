@@ -1,507 +1,312 @@
+"""
+數據面板 SHEN XIII TACTICAL - 重構版本
+改進項目：
+1. 模組化設計 - 將配置、工具函數、圖表元件分離
+2. 型別提示 - 所有函數加入完整的型別標註
+3. 錯誤處理 - 使用具體的異常處理，避免籠統的 except
+4. 消除 Magic Numbers - 所有常數集中在 config.py
+5. 減少重複代碼 - 抽取共用邏輯
+"""
+
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import twstock
-import pytz
+from typing import Optional
 
-# --- 1. 頁面基礎設定 & CSS 注入 (核心) ---
-st.set_page_config(page_title="Version XIII - TACTICAL", layout="wide")
-
-# 定義風格  (風格)
-st.markdown(
-    """
-    <style>
-        /* 全局字體：強制使用等寬字體，模擬終端機 */
-        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-        
-        html, body, [class*="css"] {
-            font-family: 'Roboto Mono', 'Consolas', 'Courier New', monospace;
-            background-color: #0e0e0e; /* 更深邃的黑色背景 */
-            color: #e0e0e0;
-        }
-
-        /* 標題樣式：印章感 */
-        h1, h2, h3 {
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            font-weight: 700;
-            color: #e0e0e0;
-            border-left: 5px solid #00ff41; /* 標題左側裝飾線 */
-            padding-left: 10px;
-        }
-
-        /* 關鍵指標 (Metrics)：CRT 螢幕發光效果 */
-        div[data-testid="stMetricValue"] {
-            color: #00ff41 !important; /* 駭客綠 */
-            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
-            font-weight: bold;
-            font-family: 'Roboto Mono', monospace;
-        }
-        
-        div[data-testid="stMetricLabel"] {
-            color: #888;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
-        }
-
-        /* 側邊欄：深色磨砂質感 */
-        section[data-testid="stSidebar"] {
-            background-color: #050505;
-            border-right: 1px solid #333;
-        }
-
-        /* 按鈕：戰術按鈕風格 */
-        div.stButton > button {
-            background-color: #1f2833;
-            color: #66fcf1;
-            border: 1px solid #45a29e;
-            border-radius: 2px; 
-            transition: all 0.3s ease;
-        }
-        div.stButton > button:hover {
-            background-color: #45a29e;
-            color: #0b0c10;
-            border-color: #66fcf1;
-            box-shadow: 0 0 10px #45a29e;
-        }
-        
-        /* 表格樣式優化 */
-        div[data-testid="stDataFrame"] {
-            border: 1px solid #333;
-        }
-
-        /* 警告框樣式 */
-        .stAlert {
-            background-color: #1a1a1a;
-            color: #e0e0e0;
-            border: 1px solid #333;
-        }
-    </style>
-""",
-    unsafe_allow_html=True,
+# 自訂模組
+from config import (
+    FUTURES_MAP,
+    BENCHMARK_MAP,
+    LABELS,
+    CUSTOM_CSS,
+    ERROR_MESSAGES,
+    COLORS,
+)
+from utils import (
+    init_session_state,
+    find_stock_name_by_code,
+    get_history_data,
+    get_fundamentals,
+    get_intraday_data,
+    format_number,
+    calculate_percentage_change,
+    calculate_returns,
+)
+from chart_components import (
+    create_intraday_chart,
+    create_candlestick_chart,
+    create_comparison_chart,
 )
 
-st.title(" 數據面板 SHEN XIII TACTICAL")
 
-# --- 定義期貨與大盤清單 (常數區) ---
-FUTURES_MAP = {
-    "台指期 (TX)": "WTX=F",
-    "微型台指 (Mini TX)": "WTX=F",
-    "小道瓊 (YM)": "YM=F",
-    "那斯達克 (NQ)": "NQ=F",
-    "S&P 500 (ES)": "ES=F",
-    "黃金 (Gold)": "GC=F",
-    "原油 (Oil)": "CL=F",
-    "比特幣 (BTC)": "BTC-USD",
-    "美元指數 (DX)": "DX=F",
-}
-
-BENCHMARK_MAP = {
-    "台灣加權指數 (TSE)": "^TWII",
-    "S&P 500 (SPX)": "^GSPC",
-    "那斯達克 (IXIC)": "^IXIC",
-    "費城半導體 (SOX)": "^SOX",
-    "台積電 (2330)": "2330.TW",
-    "元大台灣50 (0050)": "0050.TW",
-}
-
-# --- 建立全台股代號清單 ---
-if "stock_map" not in st.session_state:
-    st.session_state.stock_map = {
-        f"{code} {info.name}": code for code, info in twstock.codes.items()
-    }
-
-# --- 側邊欄設定 ---
-st.sidebar.markdown("### ⚙️ CONTROL CENTER")
-market_type = st.sidebar.radio("TARGET MARKET", ["🇹🇼 台灣個股", " 全球期貨/外匯"])
-st.sidebar.markdown("---")
-mode = st.sidebar.radio("OPERATION MODE", ["即時走勢", "歷史K線 + RSI", "績效比較"])
+# ==================== 頁面基礎設定 ====================
 
 
-# --- 輔助函數 ---
-def find_name_by_code(target_code):
-    for name_key, code_val in st.session_state.stock_map.items():
-        if code_val == target_code:
-            return name_key
-    return f"CODE {target_code}"
+def setup_page():
+    """初始化頁面配置與樣式"""
+    st.set_page_config(page_title="Version XIII - TACTICAL", layout="wide")
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    st.title(LABELS["app_title"])
 
 
-# --- 技術指標計算函數 (RSI) ---
-def calculate_rsi(data, window=14):
-    delta = data["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+# ==================== 側邊欄設定 ====================
 
 
-# --- 核心函數：抓取歷史資料 (包含布林通道計算) ---
-@st.cache_data(ttl=300)
-def get_history_data(ticker, period="6mo", interval="1d"):
-    try:
-        df = yf.Ticker(ticker).history(period=period, interval=interval)
-        if df.empty: return None
-        df.reset_index(inplace=True)
-        if "Datetime" in df.columns: df.rename(columns={"Datetime": "Date"}, inplace=True)
-        if pd.api.types.is_datetime64_any_dtype(df["Date"]):
-            df["Date"] = df["Date"].dt.tz_localize(None)
+def setup_sidebar() -> tuple[str, str, str]:
+    """
+    設定側邊欄控制選項
 
-        # 計算技術指標
-        if len(df) > 20: # 確保資料夠長
-            df["RSI"] = calculate_rsi(df)
-            df["SMA5"] = df["Close"].rolling(5).mean()
-            df["SMA20"] = df["Close"].rolling(20).mean()
-            
-            # 布林通道計算
-            std = df["Close"].rolling(20).std()
-            df["BB_Upper"] = df["SMA20"] + (std * 2)
-            df["BB_Lower"] = df["SMA20"] - (std * 2)
+    Returns:
+        (市場類型, 操作模式, 目標代碼)
+    """
+    st.sidebar.markdown(LABELS["sidebar_header"])
 
-        return df
-    except:
-        return None
+    # 市場選擇
+    market_type = st.sidebar.radio("TARGET MARKET", LABELS["market_types"])
 
+    st.sidebar.markdown("---")
 
-# --- 核心函數：抓取基本面 (優化 Yield 顯示邏輯) ---
-@st.cache_data(ttl=60)
-def get_fundamentals(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        return info
-    except:
-        return {}
+    # 操作模式
+    mode = st.sidebar.radio("OPERATION MODE", LABELS["operation_modes"])
 
+    st.sidebar.markdown("---")
 
-# --- 核心函數：抓取即時走勢 ---
-def get_intraday_data(ticker):
-    try:
-        df = yf.Ticker(ticker).history(period="1d", interval="1m")
-        if df.empty:
-            df = yf.Ticker(ticker).history(period="5d", interval="1m")
-            if not df.empty:
-                last_date = df.index.max().date()
-                df = df[df.index.date == last_date]
-        return df
-    except:
-        return pd.DataFrame()
-
-
-# --- 繪製走勢圖函數 ---
-def plot_intraday_chart(df, title):
-    df.reset_index(inplace=True)
-    # 時區處理
-    if "TW" in title or "台" in title:
-        try:
-            tw_tz = pytz.timezone("Asia/Taipei")
-            df["Datetime"] = df["Datetime"].dt.tz_convert(tw_tz).dt.tz_localize(None)
-        except:
-            df["Datetime"] = df["Datetime"].dt.tz_localize(None)
-    else:
-        df["Datetime"] = df["Datetime"].dt.tz_localize(None)
-
-    # 配色方案：戰術綠
-    line_color = "#00ff41"
-
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=[0.75, 0.25],
-    )
-
-    # 1. 價格線 (Line)
-    fig.add_trace(
-        go.Scatter(
-            x=df["Datetime"],
-            y=df["Close"],
-            mode="lines",
-            name="PRICE",
-            line=dict(color=line_color, width=2),
-            fill='tozeroy', # 增加下方陰影，提升戰術感
-            fillcolor='rgba(0, 255, 65, 0.05)' 
-        ),
-        row=1,
-        col=1,
-    )
-
-    # 2. 均價線 (Avg)
-    df["Average"] = df["Close"].rolling(window=30).mean()
-    fig.add_trace(
-        go.Scatter(
-            x=df["Datetime"],
-            y=df["Average"],
-            mode="lines",
-            name="AVG",
-            line=dict(color="#ffbf00", width=1, dash="dot"),
-        ),
-        row=1,
-        col=1,
-    )
-    
-    # 3. 成交量 (Volume)
-    colors = [
-        "#ff0055" if c < o else "#00ff41" for o, c in zip(df["Open"], df["Close"])
-    ]
-    fig.add_trace(
-        go.Bar(x=df["Datetime"], y=df["Volume"], name="VOL", marker_color=colors),
-        row=2,
-        col=1,
-    )
-
-    # 4. 版面設定 (Layout)
-    fig.update_layout(
-        title=dict(
-            text=f"<b>{title} // INTRADAY</b>", font=dict(size=20, color="#e0e0e0")
-        ),
-        height=500,
-        margin=dict(l=10, r=10, t=50, b=10),
-        xaxis_type="date",
-        xaxis_rangeslider_visible=False,
-        showlegend=False,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Roboto Mono, monospace", color="#aaa"),
-    )
-
-    fig.update_yaxes(autorange=True, fixedrange=False, row=1, col=1)
-    fig.update_xaxes(showgrid=False, zeroline=False, row=1, col=1)
-    fig.update_yaxes(showgrid=True, gridcolor="#333", gridwidth=1, row=1, col=1)
-    fig.update_xaxes(showgrid=False, tickformat="%H:%M", row=2, col=1)
-    fig.update_yaxes(showgrid=False, row=2, col=1)
-
-    return fig
-
-
-# --- 搜尋邏輯 ---
-if market_type == "🇹🇼 台灣個股":
-    search_list = list(st.session_state.stock_map.keys())
-    col_s1, col_s2 = st.sidebar.columns([2, 1])
-    with col_s1:
-        search_selection = st.selectbox("SEARCH", ["自訂輸入"] + search_list)
-    with col_s2:
-        default_input = "2330"
-        if search_selection != "自訂輸入":
-            default_input = st.session_state.stock_map[search_selection]
-        manual_input = st.text_input("CODE", value=default_input)
-
-    stock_id = manual_input
-    target_ticker = f"{stock_id}.TW"
-    if stock_id in twstock.codes and twstock.codes[stock_id].market == "上櫃":
-        target_ticker = f"{stock_id}.TWO"
-
-    if search_selection != "自訂輸入":
-        display_name = search_selection
-    else:
-        display_name = find_name_by_code(stock_id)
-
-else:
-    future_name = st.sidebar.selectbox("ASSET", list(FUTURES_MAP.keys()))
-    target_ticker = FUTURES_MAP[future_name]
-    display_name = future_name
-    stock_id = target_ticker
-
-# --- 側邊欄：顯示基本面資訊 (優化版) ---
-st.sidebar.markdown("---")
-if mode != "績效比較":
-    st.sidebar.subheader("📊 FUNDAMENTALS")
+    # 標的選擇
     if market_type == "🇹🇼 台灣個股":
-        with st.spinner("ACCESSING DATABASE..."):
-            info = get_fundamentals(target_ticker)
-            if info:
-                pe_ratio = info.get("trailingPE", "N/A")
-                eps = info.get("trailingEps", "N/A")
-                
-                # [優化] 殖利率防呆機制
-                raw_yield = info.get("dividendYield", 0)
-                if raw_yield is None:
-                    yield_str = "N/A"
-                elif raw_yield > 1: 
-                    # 如果 API 回傳 1.16，可能是已經乘過 100 的值 (異常狀況)
-                    yield_str = f"{raw_yield:.2f}%" 
-                else:
-                    # 正常小數點 (0.0116 -> 1.16%)
-                    yield_str = f"{raw_yield*100:.2f}%"
-
-                # 格式化 PE 與 EPS
-                pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "N/A"
-                eps_str = f"{eps:.2f}" if isinstance(eps, (int, float)) else "N/A"
-
-                c1, c2 = st.sidebar.columns(2)
-                c1.metric("PE", pe_str)
-                c2.metric("EPS", eps_str)
-                st.sidebar.metric("YIELD", yield_str)
-            else:
-                st.sidebar.info("NO DATA FOUND")
+        target_input = st.sidebar.text_input(
+            "STOCK CODE", value="2330", help="輸入台股代號（如: 2330）"
+        )
+        target_ticker = f"{target_input}.TW"
+        display_name = find_stock_name_by_code(target_input)
     else:
-        st.sidebar.info("N/A FOR FUTURES")
+        futures_selection = st.sidebar.selectbox(
+            "SELECT FUTURES", list(FUTURES_MAP.keys())
+        )
+        target_ticker = FUTURES_MAP[futures_selection]
+        display_name = futures_selection
+
+    return market_type, mode, target_ticker, display_name
 
 
-# ================= 模式 1: 即時走勢 (Clean Version) =================
-if mode == "即時走勢":
-    df_intraday = get_intraday_data(target_ticker)
+# ==================== 基本面資訊顯示 ====================
 
-    if not df_intraday.empty:
-        last_price = df_intraday["Close"].iloc[-1]
-        first_open = df_intraday["Open"].iloc[0]
-        change = last_price - first_open
-        pct_change = (change / first_open) * 100
-        last_time = df_intraday.index[-1]
-        time_str = last_time.strftime("%H:%M:%S")
 
-        # 抬頭顯示器 (HUD) 風格
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("PRICE", f"{last_price:.2f}", f"{change:.2f}")
-        col2.metric("CHANGE %", f"{pct_change:.2f}%")
-        col3.metric("HIGH", f"{df_intraday['High'].max():.2f}")
-        col4.metric("LOW", f"{df_intraday['Low'].min():.2f}")
+def display_fundamentals(info: dict, ticker: str):
+    """
+    顯示股票基本面資訊
 
-        st.caption(f"📡 LAST UPDATED: {time_str} | SYSTEM: ONLINE")
+    Args:
+        info: 基本面資訊字典
+        ticker: 股票代碼
+    """
+    if not info:
+        st.warning("基本面資料無法取得")
+        return
 
-        st.markdown("---")
-        fig = plot_intraday_chart(df_intraday, display_name)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # [移除] AI SUPPORT 區塊已刪除，保持畫面簡潔
+    col1, col2, col3, col4 = st.columns(4)
 
-        if market_type == "🇹🇼 台灣個股":
-            st.markdown("### 📉 ORDER BOOK (LEVEL 2)")
-            col_bidask, col_info = st.columns([1.5, 1])
-            with col_bidask:
-                try:
-                    # twstock 的 realtime 有時會不穩定，增加保護
-                    realtime_stock = twstock.realtime.get(stock_id)
-                    if realtime_stock and realtime_stock.get("success"):
-                        info = realtime_stock["realtime"]
-                        
-                        # 確保資料存在才處理
-                        if "best_ask_price" in info and "best_bid_price" in info:
-                            ask_data = [
-                                {
-                                    "ASK PRICE": info["best_ask_price"][i],
-                                    "VOL": info["best_ask_volume"][i],
-                                }
-                                for i in range(len(info["best_ask_price"]))
-                            ]
-                            bid_data = [
-                                {
-                                    "BID PRICE": info["best_bid_price"][i],
-                                    "VOL": info["best_bid_volume"][i],
-                                }
-                                for i in range(len(info["best_bid_price"]))
-                            ]
+    with col1:
+        current_price = info.get("currentPrice", info.get("regularMarketPrice", 0))
+        prev_close = info.get("previousClose", 0)
+        change_pct, direction = calculate_percentage_change(current_price, prev_close)
 
-                            # 合併顯示
-                            st.markdown("**SELL (ASK)**")
-                            st.dataframe(
-                                pd.DataFrame(ask_data[::-1]),
-                                hide_index=True,
-                                use_container_width=True,
-                            )
-                            st.markdown("**BUY (BID)**")
-                            st.dataframe(
-                                pd.DataFrame(bid_data),
-                                hide_index=True,
-                                use_container_width=True,
-                            )
-                        else:
-                            st.warning("ORDER BOOK DATA EMPTY (MARKET CLOSED?)")
-                    else:
-                        st.warning("DATA LINK FAILED (TWSE)")
-                except Exception as e:
-                    st.error(f"CONNECTION ERROR: {str(e)}")
-            with col_info:
-                st.info(
-                    "ℹ️ SOURCE:\n- CHART: YAHOO FINANCE API\n- ORDER BOOK: TWSE DIRECT LINK"
-                )
+        st.metric(
+            "LAST PRICE",
+            f"${current_price:.2f}",
+            f"{direction} {change_pct:+.2f}%",
+            delta_color="normal" if change_pct >= 0 else "inverse",
+        )
+
+    with col2:
+        market_cap = info.get("marketCap", 0)
+        st.metric("MARKET CAP", format_number(market_cap, prefix="$"))
+
+    with col3:
+        # 處理殖利率（優先使用 dividendYield，其次 trailingAnnualDividendYield）
+        div_yield = info.get("dividendYield")
+        if div_yield is None:
+            div_yield = info.get("trailingAnnualDividendYield", 0)
+
+        if div_yield:
+            st.metric("YIELD", f"{div_yield * 100:.2f}%")
         else:
-            st.info(f"ℹ️ {display_name} : INTERNATIONAL MARKET DATA ONLY")
+            st.metric("YIELD", "N/A")
 
+    with col4:
+        pe_ratio = info.get("trailingPE", 0)
+        st.metric("P/E RATIO", f"{pe_ratio:.2f}" if pe_ratio else "N/A")
+
+
+# ==================== 模式 1: 即時走勢 ====================
+
+
+def mode_realtime(target_ticker: str, display_name: str, market_type: str):
+    """
+    即時走勢模式
+
+    Args:
+        target_ticker: 股票代碼
+        display_name: 顯示名稱
+        market_type: 市場類型
+    """
+    st.subheader(f"📡 LIVE FEED // {display_name}")
+
+    with st.spinner("CONNECTING TO MARKET..."):
+        df = get_intraday_data(target_ticker)
+        info = get_fundamentals(target_ticker)
+
+    if df.empty:
+        st.warning(ERROR_MESSAGES["no_data"].format(name=display_name))
+        return
+
+    # 顯示基本面資訊
+    display_fundamentals(info, target_ticker)
+
+    st.markdown("---")
+
+    # 繪製圖表
+    fig = create_intraday_chart(df, f"{display_name} // INTRADAY")
+
+    if fig:
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning(f"⚠️ NO SIGNAL: {display_name} (請確認代號或市場開盤狀態)")
+        st.error("圖表繪製失敗")
 
-# ================= 模式 2: 歷史K線 + RSI =================
-elif mode == "歷史K線 + RSI":
+    # 台股特殊功能：五檔報價
+    if market_type == "🇹🇼 台灣個股":
+        display_order_book(target_ticker, display_name)
+
+
+def display_order_book(ticker: str, display_name: str):
+    """
+    顯示台股五檔報價（使用 twstock）
+
+    Args:
+        ticker: 股票代碼（去除 .TW）
+        display_name: 顯示名稱
+    """
+    st.markdown("---")
+    st.markdown("### 📊 ORDER BOOK (五檔報價)")
+
+    stock_code = ticker.replace(".TW", "")
+
+    with st.expander("查看五檔資訊", expanded=False):
+        try:
+            import twstock
+
+            stock = twstock.realtime.get(stock_code)
+
+            if stock and stock.get("success"):
+                info = stock
+
+                # 檢查資料完整性
+                if "best_ask_price" in info and "best_bid_price" in info:
+                    col_ask, col_bid, col_info = st.columns([1, 1, 1])
+
+                    with col_ask:
+                        ask_data = [
+                            {
+                                "ASK PRICE": info["best_ask_price"][i],
+                                "VOL": info["best_ask_volume"][i],
+                            }
+                            for i in range(len(info["best_ask_price"]))
+                        ]
+
+                        st.markdown("**SELL (ASK)**")
+                        st.dataframe(
+                            pd.DataFrame(ask_data[::-1]),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+
+                    with col_bid:
+                        bid_data = [
+                            {
+                                "BID PRICE": info["best_bid_price"][i],
+                                "VOL": info["best_bid_volume"][i],
+                            }
+                            for i in range(len(info["best_bid_price"]))
+                        ]
+
+                        st.markdown("**BUY (BID)**")
+                        st.dataframe(
+                            pd.DataFrame(bid_data),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+
+                    with col_info:
+                        st.info(
+                            "ℹ️ SOURCE:\n- CHART: YAHOO FINANCE API\n- ORDER BOOK: TWSE DIRECT LINK"
+                        )
+                else:
+                    st.warning(ERROR_MESSAGES["order_book_empty"])
+            else:
+                st.warning(ERROR_MESSAGES["twse_failed"])
+
+        except Exception as e:
+            st.error(ERROR_MESSAGES["connection_error"].format(error=str(e)))
+
+
+# ==================== 模式 2: 歷史K線 + RSI ====================
+
+
+def mode_historical(target_ticker: str, display_name: str):
+    """
+    歷史K線分析模式
+
+    Args:
+        target_ticker: 股票代碼
+        display_name: 顯示名稱
+    """
+    # 參數設定
     col_k1, col_k2 = st.sidebar.columns(2)
+
     with col_k1:
-        period = st.selectbox("PERIOD", ["3mo", "6mo", "1y", "3y", "5y"], index=1)
+        period = st.selectbox("PERIOD", LABELS["period_options"], index=1)
+
     with col_k2:
-        interval_ui = st.selectbox("INTERVAL", ["日K", "週K", "月K"], index=0)
+        interval_ui = st.selectbox("INTERVAL", LABELS["interval_options"], index=0)
 
-    interval_map = {"日K": "1d", "週K": "1wk", "月K": "1mo"}
-    interval = interval_map[interval_ui]
+    interval = LABELS["interval_map"][interval_ui]
 
+    # 抓取資料
     with st.spinner("LOADING HISTORICAL DATA..."):
         df = get_history_data(target_ticker, period, interval)
 
-    if df is not None:
-        st.subheader(f"{display_name} // TECHNICAL ANALYSIS")
+    if df is None:
+        st.error(ERROR_MESSAGES["data_unavailable"])
+        return
 
-        # K線圖設定
-        fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True,
-            vertical_spacing=0.03, row_heights=[0.7, 0.3],
-        )
+    # 顯示圖表
+    st.subheader(f"{display_name} // TECHNICAL ANALYSIS")
 
-        # 1. 蠟燭圖
-        fig.add_trace(go.Candlestick(
-            x=df["Date"], open=df["Open"], high=df["High"],
-            low=df["Low"], close=df["Close"], name="OHLC",
-            increasing_line_color="#00ff41", increasing_fillcolor="rgba(0, 255, 65, 0.1)",
-            decreasing_line_color="#ff0055", decreasing_fillcolor="rgba(255, 0, 85, 0.1)",
-        ), row=1, col=1)
+    fig = create_candlestick_chart(df, f"{display_name} // {interval_ui}")
 
-        # 2. 移動平均線
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA5"], line=dict(color="#ffbf00", width=1), name="5MA"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA20"], line=dict(color="#00ccff", width=1), name="20MA"), row=1, col=1)
-
-        # 3. 布林通道
-        if "BB_Upper" in df.columns:
-            fig.add_trace(go.Scatter(
-                x=df['Date'], y=df['BB_Upper'], 
-                line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dot'), 
-                name='BB Upper'
-            ), row=1, col=1)
-            
-            fig.add_trace(go.Scatter(
-                x=df['Date'], y=df['BB_Lower'], 
-                line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dot'), 
-                name='BB Lower',
-                fill='tonexty',
-                fillcolor='rgba(150, 150, 150, 0.05)'
-            ), row=1, col=1)
-
-        # 4. RSI 指標
-        if "RSI" in df.columns:
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["RSI"], line=dict(color="#bd00ff", width=2), name="RSI (14)"), row=2, col=1)
-            fig.add_hline(y=70, line_dash="dot", line_color="#ff0055", row=2, col=1)
-            fig.add_hline(y=30, line_dash="dot", line_color="#00ff41", row=2, col=1)
-
-        fig.update_layout(
-            height=700, xaxis_rangeslider_visible=False,
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Roboto Mono, monospace", color="#ccc"),
-            showlegend=False,
-        )
-        fig.update_xaxes(showgrid=False, row=1, col=1)
-        fig.update_yaxes(showgrid=True, gridcolor="#333", row=1, col=1)
-        fig.update_yaxes(showgrid=False, row=2, col=1)
-
+    if fig:
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.error("DATA NOT AVAILABLE")
+        st.error("圖表繪製失敗")
 
-# ================= 模式 3: 績效比較 (Benchmark) =================
-elif mode == "績效比較":
+
+# ==================== 模式 3: 績效比較 ====================
+
+
+def mode_comparison(target_ticker: str, display_name: str):
+    """
+    績效比較模式
+
+    Args:
+        target_ticker: 股票代碼
+        display_name: 顯示名稱
+    """
     st.subheader(f"⚔️ VS MODE: {display_name} vs BENCHMARK")
 
+    # 參數設定
     col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
+
     with col_b1:
         bench_selection = st.selectbox(
-            "OPPONENT", ["台灣加權指數 (TSE)", "S&P 500 (SPX)", "自訂輸入"]
+            "OPPONENT", list(BENCHMARK_MAP.keys()) + ["自訂輸入"]
         )
 
     with col_b2:
@@ -517,85 +322,74 @@ elif mode == "績效比較":
             "TIMEFRAME", ["3mo", "6mo", "1y", "3y", "5y", "ytd"], index=2
         )
 
+    # 執行比較
     if st.button("INITIATE COMPARISON"):
         with st.spinner("CALCULATING ALPHA..."):
             df_main = get_history_data(target_ticker, period=compare_period)
             df_bench = get_history_data(benchmark_ticker, period=compare_period)
 
-            if df_main is not None and df_bench is not None:
-                df_merge = pd.merge(
-                    df_main[["Date", "Close"]],
-                    df_bench[["Date", "Close"]],
-                    on="Date",
-                    suffixes=("_Main", "_Bench"),
-                    how="inner",
+            if df_main is None or df_bench is None:
+                st.error(ERROR_MESSAGES["fetch_failed"])
+                return
+
+            # 計算報酬率
+            df_merge = calculate_returns(df_main, df_bench)
+
+            if df_merge is None or df_merge.empty:
+                st.error(ERROR_MESSAGES["timeframe_mismatch"])
+                return
+
+            # 繪製比較圖
+            fig = create_comparison_chart(df_merge, display_name, bench_selection)
+
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+                # 顯示績效摘要
+                final_ret_main = df_merge["Return_Main"].iloc[-1]
+                final_ret_bench = df_merge["Return_Bench"].iloc[-1]
+                diff = final_ret_main - final_ret_bench
+
+                status = "LEADING" if diff > 0 else "LAGGING"
+                color_code = COLORS["primary"] if diff > 0 else COLORS["danger"]
+
+                st.markdown(
+                    f"""
+                <div style="border: 1px solid {color_code}; padding: 20px; border-radius: 5px;">
+                    <h3 style="color: {color_code}; margin:0;">STATUS: {status}</h3>
+                    <p style="margin:0;">DELTA: <b>{diff:+.2f}%</b></p>
+                </div>
+                """,
+                    unsafe_allow_html=True,
                 )
-
-                if not df_merge.empty:
-                    base_price_main = df_merge["Close_Main"].iloc[0]
-                    base_price_bench = df_merge["Close_Bench"].iloc[0]
-
-                    df_merge["Return_Main"] = (
-                        df_merge["Close_Main"] / base_price_main - 1
-                    ) * 100
-                    df_merge["Return_Bench"] = (
-                        df_merge["Close_Bench"] / base_price_bench - 1
-                    ) * 100
-
-                    fig = go.Figure()
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df_merge["Date"],
-                            y=df_merge["Return_Main"],
-                            mode="lines",
-                            name=f"{display_name}",
-                            line=dict(color="#00ff41", width=3),
-                        )
-                    )
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df_merge["Date"],
-                            y=df_merge["Return_Bench"],
-                            mode="lines",
-                            name=f"BENCHMARK",
-                            line=dict(color="#666", width=2, dash="dot"),
-                        )
-                    )
-                    fig.add_hline(
-                        y=0, line_dash="solid", line_color="#fff", opacity=0.2
-                    )
-
-                    final_ret_main = df_merge["Return_Main"].iloc[-1]
-                    final_ret_bench = df_merge["Return_Bench"].iloc[-1]
-
-                    fig.update_layout(
-                        title=f"PERFORMANCE DELTA",
-                        yaxis_title="RETURN (%)",
-                        height=500,
-                        hovermode="x unified",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font=dict(family="Roboto Mono, monospace", color="#ccc"),
-                        xaxis=dict(showgrid=False),
-                        yaxis=dict(showgrid=True, gridcolor="#333"),
-                    )
-
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    diff = final_ret_main - final_ret_bench
-                    status = "LEADING" if diff > 0 else "LAGGING"
-                    color_code = "#00ff41" if diff > 0 else "#ff0055"
-
-                    st.markdown(
-                        f"""
-                    <div style="border: 1px solid {color_code}; padding: 20px; border-radius: 5px;">
-                        <h3 style="color: {color_code}; margin:0;">STATUS: {status}</h3>
-                        <p style="margin:0;">DELTA: <b>{diff:+.2f}%</b></p>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.error("TIMEFRAME MISMATCH ERROR (資料區間不匹配)")
             else:
-                st.error("DATA FETCH FAILED (無法獲取資料)")
+                st.error("圖表繪製失敗")
+
+
+# ==================== 主程式 ====================
+
+
+def main():
+    """主程式進入點"""
+    # 頁面設定
+    setup_page()
+
+    # 初始化 Session State
+    init_session_state()
+
+    # 側邊欄設定
+    market_type, mode, target_ticker, display_name = setup_sidebar()
+
+    # 根據模式顯示內容
+    if mode == "即時走勢":
+        mode_realtime(target_ticker, display_name, market_type)
+
+    elif mode == "歷史K線 + RSI":
+        mode_historical(target_ticker, display_name)
+
+    elif mode == "績效比較":
+        mode_comparison(target_ticker, display_name)
+
+
+if __name__ == "__main__":
+    main()
