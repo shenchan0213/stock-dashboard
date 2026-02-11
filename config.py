@@ -87,9 +87,9 @@ BENCHMARK_MAP = {
 
 # --- 文字標籤 ---
 LABELS = {
-    "app_title": "🛡️ 數據面板 SHEN XIII TACTICAL",
+    "app_title": " 數據面板 SHEN XIV ",
     "sidebar_header": "### ⚙️ CONTROL CENTER",
-    "market_types": ["🇹🇼 台灣個股", "🌎 全球期貨/外匯"],
+    "market_types": ["🇹🇼 台灣個股", " 全球期貨/外匯"],
     "operation_modes": ["即時走勢", "歷史K線 + RSI", "績效比較"],
     "period_options": ["3mo", "6mo", "1y", "3y", "5y"],
     "interval_options": ["日K", "週K", "月K"],
