@@ -325,8 +325,8 @@ def mode_comparison(target_ticker: str, display_name: str):
     # 執行比較
     if st.button("INITIATE COMPARISON"):
         with st.spinner("CALCULATING ALPHA..."):
-            df_main = get_history_data(target_ticker, period=compare_period)
-            df_bench = get_history_data(benchmark_ticker, period=compare_period)
+            df_main = get_history_data(target_ticker, period=compare_period, include_indicators=False)
+            df_bench = get_history_data(benchmark_ticker, period=compare_period, include_indicators=False)
 
             if df_main is None or df_bench is None:
                 st.error(ERROR_MESSAGES["fetch_failed"])
