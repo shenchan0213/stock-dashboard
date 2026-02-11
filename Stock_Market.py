@@ -51,7 +51,7 @@ def setup_page():
 # ==================== 側邊欄設定 ====================
 
 
-def setup_sidebar() -> tuple[str, str, str]:
+def setup_sidebar() -> tuple[str, str, str, str]:
     """
     設定側邊欄控制選項
 
@@ -77,6 +77,13 @@ def setup_sidebar() -> tuple[str, str, str]:
         )
         target_ticker = f"{target_input}.TW"
         display_name = find_stock_name_by_code(target_input)
+    elif market_type == "🇺🇸 美股/ETF":
+        # 新增：美股直接使用輸入值，不加後綴
+        target_input = st.sidebar.text_input(
+            "STOCK CODE", value="NVDA", help="輸入美股代號 (如: NVDA, AAPL, TSLA)"
+        )
+        target_ticker = target_input.upper().strip() # 轉大寫並去空白
+        display_name = target_ticker
     else:
         futures_selection = st.sidebar.selectbox(
             "SELECT FUTURES", list(FUTURES_MAP.keys())
