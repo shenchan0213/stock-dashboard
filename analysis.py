@@ -6,17 +6,29 @@ import pandas as pd
 import streamlit as st # 引入 streamlit 以便顯示除錯訊息
 import requests
 
-FMP_API_KEY = "2ct3aXGeISJuBjXuCX762wNcK2oNe4jD"  # 請替換為你的 FMP API 金鑰
+  #  FMP API 金鑰
 def get_financial_health(ticker: str) -> dict:
+    api_key = st.secrets.get("FMP_API_KEY", "")
+    if not api_key:
+        print("⚠️ Warning: FMP_API_KEY not found in secrets.toml")
+        return _get_data_from_yahoo(ticker) # 沒 Key 就直接退回 Yahoo
     """
     優先使用 FMP API 獲取數據，失敗則退回 Yahoo Finance
     """
     # 1. 嘗試使用 FMP (針對美股特別強大)
     try:
-        # FMP 不需要 .TW 後綴，也不需要 ^ 符號，需做簡單處理
-        clean_ticker = ticker.replace(".TW", "").replace("^", "")
+      # 判斷是否為台股 (根據是否有 .TW 後綴)
+     if ".TW" in ticker:
+        # 台股在 FMP 通常需要帶上後綴或是特定格式
+        # 測試過後，若 FMP 支援 2330.TW 則保留；若不支援則再微調
+        clean_ticker = ticker 
+     else:
+        # 美股或指數則移除 ^ 符號
+        clean_ticker = ticker.replace("^", "")
+    
+    # 這裡的 url 就會使用處理後的代碼
         
-        url = f"https://financialmodelingprep.com/api/v3/key-metrics-ttm/{clean_ticker}?apikey={FMP_API_KEY}"
+        url = f"https://financialmodelingprep.com/api/v3/key-metrics-ttm/{clean_ticker}?apikey={api_key}"
         response = requests.get(url, timeout=5)
         data = response.json()
 
