@@ -1,5 +1,5 @@
 """
-數據面板 SHEN XIII TACTICAL - 重構版本
+數據面板 SHEN XIV TACTICAL - 重構版本
 改進項目：
 1. 模組化設計 - 將配置、工具函數、圖表元件分離
 2. 型別提示 - 所有函數加入完整的型別標註
@@ -11,7 +11,7 @@
 import streamlit as st
 import pandas as pd
 from typing import Optional
-
+from analysis import get_financial_health
 # 自訂模組
 from config import (
     FUTURES_MAP,
@@ -43,7 +43,7 @@ from chart_components import (
 
 def setup_page():
     """初始化頁面配置與樣式"""
-    st.set_page_config(page_title="Version XIII - TACTICAL", layout="wide")
+    st.set_page_config(page_title="Version XIＶ - TACTICAL", layout="wide")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     st.title(LABELS["app_title"])
 
@@ -148,7 +148,7 @@ def mode_realtime(target_ticker: str, display_name: str, market_type: str):
         display_name: 顯示名稱
         market_type: 市場類型
     """
-    st.subheader(f"📡 LIVE FEED // {display_name}")
+    st.subheader(f" LIVE FEED // {display_name}")
 
     with st.spinner("CONNECTING TO MARKET..."):
         df = get_intraday_data(target_ticker)
@@ -286,6 +286,63 @@ def mode_historical(target_ticker: str, display_name: str):
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.error("圖表繪製失敗")
+    
+    st.markdown("---")
+    st.subheader(f" STRATEGIC INTELLIGENCE // Inform")
+    
+    with st.spinner("ANALYZING FUNDAMENTALS..."):
+        health_data = get_financial_health(target_ticker)
+        
+    if health_data:
+        data = health_data["data"]
+        
+        # 使用 Expander 收折詳細數據，保持版面乾淨
+        with st.expander("查看財務健康度報告 (Financial Health Report)", expanded=True):
+            
+            c1, c2, c3 = st.columns(3)
+            
+            with c1:
+                st.markdown("**1. 估值狀態 (Valuation)**")
+                pe_val = data['PE'] if data['PE'] else 0
+                st.metric(
+                    label="本益比 (P/E Ratio)",
+                    value=f"{pe_val:.2f}",
+                    delta=health_data["pe_status"],
+                    delta_color="inverse" # 高估顯示紅色，低估顯示綠色
+                )
+                st.caption(f"預估本益比: {data['Forward PE']:.2f}" if data['Forward PE'] else "N/A")
+
+            with c2:
+                st.markdown("**2. 獲利效率 (Efficiency)**")
+                roe_val = data['ROE'] * 100 if data['ROE'] else 0
+                st.metric(
+                    label="ROE (股東權益報酬率)",
+                    value=f"{roe_val:.2f}%",
+                    delta=health_data["roe_status"],
+                    delta_color="normal"
+                )
+                st.caption("巴菲特門檻: >15%")
+
+            with c3:
+                st.markdown("**3. 護城河 (Moat)**")
+                pm_val = data['Profit Margin'] * 100 if data['Profit Margin'] else 0
+                st.metric(
+                    label="淨利率 (Net Margin)",
+                    value=f"{pm_val:.2f}%",
+                    delta=health_data["margin_status"],
+                    delta_color="normal"
+                )
+                st.caption(f"Beta (波動度): {data['Beta']:.2f}" if data['Beta'] else "N/A")
+                
+            # 文字總結
+            st.info(f"""
+            💡 **顧問洞察：**
+            目前 {display_name} 的 ROE 為 **{roe_val:.1f}%**，屬於 **{health_data['roe_status']}** 等級。
+            市場給予的 PEG Ratio 為 **{data['PEG'] if data['PEG'] else 'N/A'}**，
+            { '通常 PEG < 1 代表具有成長潛力且股價低估。' if data['PEG'] and data['PEG'] < 1 else '需留意成長率是否跟得上高估值。' }
+            """)
+    else:
+        st.warning("⚠️ 無法獲取財務基本面數據 (可能為指數或期貨商品)")
 
 
 # ==================== 模式 3: 績效比較 ====================
