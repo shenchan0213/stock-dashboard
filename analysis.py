@@ -1,19 +1,22 @@
 """
-analysis.py
-負責財務數據分析與健康度評分邏輯
+analysis.py (Debug Version)
 """
 import yfinance as yf
 import pandas as pd
+import streamlit as st # 引入 streamlit 以便顯示除錯訊息
 
 def get_financial_health(ticker: str) -> dict:
-    """
-    獲取並分析公司的財務健康度
-    """
     try:
         stock = yf.Ticker(ticker)
+        
+        # 嘗試獲取 info
         info = stock.info
         
-        # 提取關鍵數據 (若無數據則給 None)
+        # 雲端除錯關鍵：如果 info 是空的，手動拋出錯誤
+        if not info or len(info) < 5:
+            raise ValueError("Yahoo Finance 回傳空數據 (可能被阻擋)")
+
+        # ... (原本的提取數據邏輯保持不變) ...
         pe = info.get('trailingPE')
         forward_pe = info.get('forwardPE')
         peg = info.get('pegRatio')
@@ -21,7 +24,6 @@ def get_financial_health(ticker: str) -> dict:
         profit_margin = info.get('profitMargins')
         beta = info.get('beta')
         
-        #  (Simple Valuation Logic)
         analysis = {
             "pe_status": "N/A",
             "roe_status": "N/A",
@@ -36,19 +38,17 @@ def get_financial_health(ticker: str) -> dict:
             }
         }
 
-        # 1.  (PE & PEG)
+        # ... (原本的評分邏輯保持不變) ...
         if pe:
             if pe < 15: analysis["pe_status"] = "低估 (Undervalued)"
             elif pe > 35: analysis["pe_status"] = "高估 (Overvalued)"
             else: analysis["pe_status"] = "合理 (Fair)"
             
-        # 2. 獲利能力評估 (ROE) - 巴菲特指標 > 15%
         if roe:
             if roe > 0.20: analysis["roe_status"] = "極優 (Excellent)"
             elif roe > 0.15: analysis["roe_status"] = "良好 (Good)"
             else: analysis["roe_status"] = "普通 (Average)"
 
-        # 3. 護城河評估 (Net Profit Margin)
         if profit_margin:
             if profit_margin > 0.20: analysis["margin_status"] = "具壟斷力 (Moat)"
             else: analysis["margin_status"] = "競爭激烈 (Competitive)"
@@ -56,4 +56,6 @@ def get_financial_health(ticker: str) -> dict:
         return analysis
 
     except Exception as e:
+        # 在 Streamlit Cloud 的 Logs 中印出具體錯誤
+        print(f"❌ [Error] {ticker} 基本面獲取失敗: {e}")
         return None
