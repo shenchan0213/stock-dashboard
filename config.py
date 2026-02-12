@@ -16,17 +16,58 @@ COLORS = {
     "fill_red": "rgba(255, 0, 85, 0.05)",
 }
 
+# config.py (Updated)
+
 # --- CSS 樣式 ---
 CUSTOM_CSS = f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
         
+        /* 1. 全域設定 */
         html, body, [class*="css"] {{
             font-family: 'Roboto Mono', 'Consolas', monospace;
             background-color: #0e0e0e;
             color: {COLORS['text']};
         }}
 
+        /* 2. 修正 Streamlit 頂部留白 (關鍵！讓跑馬燈貼頂) */
+        .block-container {{
+            padding-top: 0rem !important; 
+            padding-bottom: 1rem !important;
+        }}
+        header {{
+            visibility: hidden; /* 隱藏 Streamlit 預設選單那條 bar，讓畫面更像 App */
+        }}
+
+        /* 3. 跑馬燈樣式 (Ticker Tape) */
+        .ticker-wrap {{
+            width: 100%;
+            overflow: hidden;
+            background-color: #000000; /* 全黑背景區隔 */
+            border-bottom: 1px solid {COLORS['grid']};
+            padding: 8px 0;
+            white-space: nowrap;
+            box-sizing: border-box;
+            position: sticky;
+            top: 0;
+            z-index: 999; /* 確保在最上層 */
+        }}
+        .ticker {{
+            display: inline-block;
+            animation: ticker 40s linear infinite; /* 調整速度 */
+        }}
+        @keyframes ticker {{
+            0% {{ transform: translate3d(0, 0, 0); }}
+            100% {{ transform: translate3d(-100%, 0, 0); }}
+        }}
+        .ticker-item {{
+            display: inline-block;
+            padding: 0 2rem;
+            font-size: 0.9rem;
+            color: #ccc;
+        }}
+
+        /* 4. 元件樣式 */
         h1, h2, h3 {{
             text-transform: uppercase;
             letter-spacing: 2px;
@@ -34,14 +75,15 @@ CUSTOM_CSS = f"""
             color: {COLORS['text']};
             border-left: 5px solid {COLORS['primary']};
             padding-left: 10px;
+            margin-top: 1rem; /* 標題與跑馬燈的距離 */
         }}
 
         div[data-testid="stMetricValue"] {{
             color: {COLORS['primary']} !important;
             text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
-            font-family: 'Roboto Mono', monospace;
         }}
         
+        /* 按鈕與 Alert 樣式保持不變 */
         div.stButton > button {{
             background-color: #1f2833;
             color: #66fcf1;
@@ -54,7 +96,6 @@ CUSTOM_CSS = f"""
             color: #0b0c10;
             box-shadow: 0 0 10px #45a29e;
         }}
-        
         .stAlert {{
             background-color: #1a1a1a;
             border: 1px solid #333;

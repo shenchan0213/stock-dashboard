@@ -30,6 +30,7 @@ from utils import (
     format_number,
     calculate_percentage_change,
     calculate_returns,
+    get_ticker_tape_data,
 )
 from chart_components import (
     create_intraday_chart,
@@ -47,6 +48,26 @@ def setup_page():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     st.title(LABELS["app_title"])
 
+# Stock_Market.py (Insert logic)
+
+def render_ticker_tape():
+    """渲染頂部跑馬燈"""
+    # 獲取快取資料
+    items = get_ticker_tape_data()
+    
+    if not items:
+        return
+
+    # 組合 HTML
+    content = "".join(items)
+    html = f"""
+    <div class="ticker-wrap">
+        <div class="ticker">
+            {content}
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 # ==================== 側邊欄設定 ====================
 
@@ -437,6 +458,8 @@ def main():
     """主程式進入點"""
     # 頁面設定
     setup_page()
+    
+    render_ticker_tape()
 
     # 初始化 Session State
     init_session_state()

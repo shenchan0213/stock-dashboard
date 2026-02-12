@@ -152,3 +152,64 @@ def calculate_returns(df_main: pd.DataFrame, df_bench: pd.DataFrame) -> Optional
     except Exception as e:
         st.error(f"計算回報率時發生錯誤: {e}")
         return None
+    # utils.py (Add to end of file)
+
+@st.cache_data(ttl=600) # 設定 10 分鐘快取，避免頻繁請求卡頓
+def get_ticker_tape_data() -> list:
+    """
+    獲取全球指數跑馬燈資料 (含快取機制)
+    """
+    # 定義要追蹤的指數與顯示名稱
+    indices = {
+        "^TWII": "TWSE",       # 台股
+        "^GSPC": "S&P500",     # 標普
+        "^IXIC": "NASDAQ",     # 那指
+        "^SOX": "PHLX",        # 費半
+        "BTC-USD": "BTC",      # 比特幣
+        "NVDA": "NVDA",        # 輝達
+        "TSM": "TSM(ADR)",     # 台積電ADR
+        "DX-Y.NYB": "DXY"      # 美元指數
+    }
+    
+    ticker_data = []
+    
+    try:
+        # 一次性獲取所有資料以節省時間
+        tickers = " ".join(indices.keys())
+        data = yf.download(tickers, period="2d", progress=False)['Close']
+        
+        # 處理資料 (yfinance 下載多檔時格式會有差異，需小心處理)
+        for symbol, name in indices.items():
+            try:
+                # 取得該標的的最後兩日收盤價
+                if isinstance(data, pd.DataFrame) and symbol in data.columns:
+                    series = data[symbol].dropna()
+                elif len(indices) == 1: # 只有一檔時
+                    series = data.dropna()
+                else:
+                    continue
+                    
+                if len(series) >= 2:
+                    current = series.iloc[-1]
+                    prev = series.iloc[-2]
+                    change = (current - prev) / prev * 100
+                    
+                    # 格式化數據
+                    color = "#00ff41" if change >= 0 else "#ff0055" # 綠漲紅跌
+                    arrow = "▲" if change >= 0 else "▼"
+                    
+                    html_item = f"""
+                    <span class="ticker-item">
+                        {name} <span style="color: {color}; font-weight: bold;">{current:,.0f} {arrow} {change:.2f}%</span>
+                    </span>
+                    """
+                    ticker_data.append(html_item)
+            except Exception:
+                continue
+                
+    except Exception as e:
+        print(f"Ticker Tape Error: {e}")
+        return []
+        
+    # 重複兩次列表，讓跑馬燈看起來無縫連接
+    return ticker_data * 2
