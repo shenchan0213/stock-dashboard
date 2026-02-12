@@ -50,8 +50,10 @@ def setup_page():
 
 # Stock_Market.py (Insert logic)
 
+# Stock_Market.py 修正版
+
 def render_ticker_tape():
-    """渲染頂部跑馬燈"""
+    """渲染頂部跑馬燈 (修正縮排問題)"""
     # 獲取快取資料
     items = get_ticker_tape_data()
     
@@ -60,13 +62,17 @@ def render_ticker_tape():
 
     # 組合 HTML
     content = "".join(items)
+    
+    # ⚠️ 關鍵修正：HTML 標籤必須緊貼左側，不能有縮排，否則會變程式碼區塊
     html = f"""
-    <div class="ticker-wrap">
-        <div class="ticker">
-            {content}
-        </div>
-    </div>
-    """
+<div class="ticker-wrap">
+<div class="ticker">
+{content}
+</div>
+</div>
+"""
+    # 或者寫成一行： html = f'<div class="ticker-wrap"><div class="ticker">{content}</div></div>'
+    
     st.markdown(html, unsafe_allow_html=True)
 
 # ==================== 側邊欄設定 ====================
