@@ -43,18 +43,20 @@ def setup_page():
 
 # Stock_Market.py 裡的 render_ticker_tape 替換成這個
 
+# --- 在 Stock_Market.py 中替換這個函數 ---
+
 def render_ticker_tape():
-    """渲染頂部跑馬燈 (單行字串版，解決黑色方塊問題)"""
+    """渲染頂部跑馬燈 """
     # 獲取快取資料
     items = get_ticker_tape_data()
     
     if not items:
         return
 
-    # 組合 HTML
+    # 組合 HTML 內容
     content = "".join(items)
     
-    # ⚠️ 修正：將 HTML 壓縮為一行，徹底避免 Streamlit 誤判為程式碼區塊
+    # ⚠️ 關鍵修正：完全不換行，確保 Streamlit 100% 識別為 HTML
     html = f'<div class="ticker-wrap"><div class="ticker">{content}</div></div>'
     
     st.markdown(html, unsafe_allow_html=True)
