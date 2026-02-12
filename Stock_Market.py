@@ -41,8 +41,10 @@ def setup_page():
     st.set_page_config(page_title="SHEN XIV - TACTICAL", layout="wide")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+# Stock_Market.py 裡的 render_ticker_tape 替換成這個
+
 def render_ticker_tape():
-    """渲染頂部跑馬燈"""
+    """渲染頂部跑馬燈 (單行字串版，解決黑色方塊問題)"""
     # 獲取快取資料
     items = get_ticker_tape_data()
     
@@ -52,16 +54,11 @@ def render_ticker_tape():
     # 組合 HTML
     content = "".join(items)
     
-    # ⚠️ 關鍵修正：HTML 標籤緊貼左側，無縮排
-    html = f"""
-<div class="ticker-wrap">
-<div class="ticker">
-{content}
-</div>
-</div>
-"""
+    # ⚠️ 修正：將 HTML 壓縮為一行，徹底避免 Streamlit 誤判為程式碼區塊
+    html = f'<div class="ticker-wrap"><div class="ticker">{content}</div></div>'
+    
     st.markdown(html, unsafe_allow_html=True)
-    st.title(LABELS["app_title"]) # 標題放在跑馬燈之後
+    st.title(LABELS["app_title"])
 
 
 # ==================== 2. 側邊欄設定 ====================
