@@ -9,6 +9,7 @@ import pytz
 from typing import Optional
 from config import COLORS
 
+
 def _apply_common_layout(fig, height=500):
     fig.update_layout(
         height=height,
@@ -153,4 +154,59 @@ def create_comparison_chart(df: pd.DataFrame, name_main: str, name_bench: str) -
     )
     fig.update_yaxes(gridcolor=COLORS["grid"])
     
+    return fig
+
+
+# ==================== 新增：Sparkline 迷你走勢圖 ====================
+def create_sparkline(df: pd.DataFrame, symbol: str, change_pct: float) -> go.Figure:
+    """生成 iOS App 風格的超小型 Sparkline（高度 60px）"""
+    color = COLORS["primary"] if change_pct >= 0 else COLORS["danger"]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["Close"],
+        mode="lines",
+        line=dict(color=color, width=2.5),
+        fill="tozeroy",
+        fillcolor="rgba(0,255,65,0.08)" if change_pct >= 0 else "rgba(255,0,85,0.08)"
+    ))
+    
+    fig.update_layout(
+        height=60,
+        width=130,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
+    return fig
+
+# ==================== 新增：iOS Sparkline 迷你走勢圖 ====================
+def create_sparkline(df: pd.DataFrame, symbol: str, change_pct: float) -> go.Figure:
+    """生成超小型 Sparkline（120×60px，無座標軸）"""
+    color = COLORS["primary"] if change_pct >= 0 else COLORS["danger"]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["Close"],
+        mode="lines",
+        line=dict(color=color, width=2.5),
+        fill="tozeroy",
+        fillcolor="rgba(0,255,65,0.08)" if change_pct >= 0 else "rgba(255,0,85,0.08)"
+    ))
+    
+    fig.update_layout(
+        height=60,
+        width=130,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
     return fig

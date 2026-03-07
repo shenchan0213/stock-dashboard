@@ -32,6 +32,7 @@ from chart_components import (
     create_intraday_chart,
     create_candlestick_chart,
     create_comparison_chart,
+    create_sparkline,
 )
 
 
@@ -46,60 +47,43 @@ def setup_page():
 
 # --- 在 Stock_Market.py 中替換這個函數 ---
 
-def render_ticker_tape():
-    """渲染頂部跑馬燈（iOS 股票 App 風格 + 100% 穩定渲染）"""
-    items = get_ticker_tape_data()
+def render_watchlist_header():
+    """iOS 風格頂部 Sparkline Watchlist（迷你走勢圖 + 大數字價格）"""
+    # 可自訂想顯示的熱門標的（之後可做成可編輯 Watchlist）
+    watchlist = [
+        ("^TWII", "台指"), ("NVDA", "NVDA"), ("TSM", "TSM(ADR)"),
+        ("AAPL", "AAPL"), ("^GSPC", "S&P500"), ("BTC-USD", "BTC")
+    ]
     
-    if not items:
-        st.title(LABELS["app_title"])
-        return
-
-    content = "".join(items)
+    st.markdown("### 🌍 GLOBAL WATCHLIST")
+    cols = st.columns(len(watchlist))
     
-    # 完整內嵌 HTML + CSS（解決 Streamlit 渲染失效問題）
-    ticker_html = f"""
-    <style>
-        .ticker-wrap {{
-            width: 100%;
-            overflow: hidden;
-            background-color: #000000;
-            border-bottom: 1px solid #333333;
-            padding: 8px 0;
-            white-space: nowrap;
-            box-sizing: border-box;
-            position: sticky;
-            top: 0;
-            z-index: 999;
-        }}
-        .ticker {{
-            display: inline-block;
-            animation: ticker 45s linear infinite;
-            padding-left: 100%;
-        }}
-        @keyframes ticker {{
-            0% {{ transform: translateX(0); }}
-            100% {{ transform: translateX(-100%); }}
-        }}
-        .ticker-item {{
-            display: inline-block;
-            padding: 0 2.2rem;
-            font-size: 0.95rem;
-            color: #cccccc;
-        }}
-    </style>
-    
-    <div class="ticker-wrap">
-        <div class="ticker">
-            {content}
-            {content}  <!-- 重複一次讓滾動無縫銜接 -->
-        </div>
-    </div>
-    """
-    
-    # 使用 components.html 強制渲染（比 st.markdown 更穩定）
-    components.html(ticker_html, height=48, scrolling=False)
-    
-    st.title(LABELS["app_title"])
+    for i, (ticker, name) in enumerate(watchlist):
+        with cols[i]:
+            try:
+                df = get_history_data(ticker, period="5d", include_indicators=False)
+                if df is None or df.empty:
+                    st.metric(name, "N/A")
+                    continue
+                
+                current = df["Close"].iloc[-1]
+                prev = df["Close"].iloc[-2] if len(df) > 1 else current
+                change_pct = (current - prev) / prev * 100
+                
+                # 迷你走勢圖
+                fig = create_sparkline(df.set_index("Date"), name, change_pct)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                
+                # iOS 大數字價格 + 漲跌
+                color = "normal" if change_pct >= 0 else "inverse"
+                st.metric(
+                    label=f"**{name}**",
+                    value=f"{current:,.2f}",
+                    delta=f"{change_pct:+.2f}%",
+                    delta_color=color
+                )
+            except:
+                st.metric(name, "N/A")
 
 
 # ==================== 2. 側邊欄設定 ====================
@@ -406,7 +390,7 @@ def main():
     setup_page()
     
     # 2. 渲染跑馬燈 (必須在 setup_page 之後)
-    render_ticker_tape()
+    render_watchlist_header()
 
     # 3. 初始化狀態
     init_session_state()
