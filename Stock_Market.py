@@ -218,7 +218,7 @@ def mode_realtime(target_ticker: str, display_name: str, market_type: str):
 
 
 def mode_historical(target_ticker: str, display_name: str):
-    """歷史K線分析模式"""
+    """歷史K線分析模式（財務報告）"""
     col_k1, col_k2 = st.sidebar.columns(2)
     with col_k1:
         period = st.selectbox("PERIOD", LABELS["period_options"], index=1)
@@ -238,6 +238,68 @@ def mode_historical(target_ticker: str, display_name: str):
     if fig:
         st.plotly_chart(fig, use_container_width=True)
     
+    # ==================== 全新財務健康報告面板 ====================
+    st.markdown("---")
+    st.subheader("STRATEGIC INTELLIGENCE // Financial Health")
+    
+    with st.spinner("ANALYZING FUNDAMENTALS..."):
+        health_data = get_financial_health(target_ticker)
+        
+    if health_data:
+        data = health_data["data"]
+        
+        # 主視覺：綜合健康分數（彩色大字 + 進度條）
+        score = health_data.get("health_score", 0)
+        color = "#00ff41" if score >= 80 else "#00ccff" if score >= 65 else "#ffbf00" if score >= 50 else "#ff0055"
+        
+        st.markdown(f"""
+        <div style="text-align:center; padding:20px; background-color:#1a1a1a; border-radius:10px; border:2px solid {color};">
+            <h2 style="margin:0; color:{color};">HEALTH SCORE</h2>
+            <h1 style="margin:10px 0 0 0; font-size:3.5rem; color:{color};">{score}</h1>
+            <p style="margin:0; color:#aaa;">/ 100</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.progress(score / 100)
+        
+        # 投資洞察（醒目提示框）
+        st.info(f"** 洞察**：{health_data['insight']}")
+        
+        # 三項核心指標（高密度）
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            pe_val = data.get('PE', 0) or 0
+            st.metric(
+                label="本益比 (P/E)", 
+                value=f"{pe_val:.2f}", 
+                delta=health_data["pe_status"],
+                delta_color="inverse"
+            )
+        with c2:
+            roe_val = data.get('ROE', 0) or 0
+            st.metric(
+                label="ROE (權益報酬率)", 
+                value=f"{roe_val:.1f}%", 
+                delta=health_data["roe_status"]
+            )
+        with c3:
+            pm_val = data.get('Profit Margin', 0) or 0
+            st.metric(
+                label="淨利率 (Net Margin)", 
+                value=f"{pm_val:.1f}%", 
+                delta=health_data["margin_status"]
+            )
+        
+        # 額外數據（折疊顯示）
+        with st.expander(" 完整指標明細", expanded=False):
+            st.json({
+                "Forward PE": data.get("Forward PE"),
+                "PEG Ratio": data.get("PEG"),
+                "Beta": data.get("Beta")
+            })
+            
+    else:
+        st.warning("⚠️ 無法獲取財務基本面數據（指數或期貨商品無基本面）")
     # 戰略情報區塊
     st.markdown("---")
     st.subheader(f" STRATEGIC INTELLIGENCE // Inform")

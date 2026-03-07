@@ -8,6 +8,28 @@ import pandas as pd
 import twstock
 from typing import Optional, Tuple
 
+# ==================== yfinance 防 Rate Limit 強化 ====================
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
+import yfinance as yf
+from requests import Session
+
+# 建立全域 Session（偽裝成 Chrome 瀏覽器）
+_yf_session = Session()
+_yf_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+})
+
+# 自訂 retry 裝飾器（最多重試 5 次，等待 1→3→7→15 秒）
+def retry_yfinance(func):
+    return retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=15),
+        retry=retry_if_exception(lambda e: "rate limit" in str(e).lower() or "429" in str(e) or "too many" in str(e).lower()),
+        reraise=True
+    )(func)
+
+# 讓 yfinance 使用我們的 Session（全域生效）
+yf.utils.get_yf_data = lambda *args, **kwargs: _yf_session  # 核心注入
 # --- Session State 初始化 ---
 def init_session_state():
     if "stock_map" not in st.session_state:
@@ -70,6 +92,7 @@ def _calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # --- 資料獲取函數 ---
+@retry_yfinance
 @st.cache_data(ttl=300)
 def get_history_data(ticker: str, period: str = "6mo", interval: str = "1d", include_indicators: bool = True) -> Optional[pd.DataFrame]:
     """
@@ -99,7 +122,7 @@ def get_history_data(ticker: str, period: str = "6mo", interval: str = "1d", inc
     except Exception as e:
         st.error(f"Data Fetch Error: {e}")
         return None
-
+@retry_yfinance
 @st.cache_data(ttl=300) # 延長基本面快取時間，因為 yf.info 很慢
 def get_fundamentals(ticker: str) -> dict:
     try:
@@ -109,7 +132,7 @@ def get_fundamentals(ticker: str) -> dict:
         return stock.info
     except:
         return {}
-
+@retry_yfinance
 def get_intraday_data(ticker: str) -> pd.DataFrame:
     try:
         # 台股盤中需要較即時，不開啟 auto_adjust
@@ -154,6 +177,7 @@ def calculate_returns(df_main: pd.DataFrame, df_bench: pd.DataFrame) -> Optional
         return None
     # utils.py (Add to end of file)
 
+@retry_yfinance
 @st.cache_data(ttl=600) # 設定 10 分鐘快取，避免頻繁請求卡頓
 def get_ticker_tape_data() -> list:
     """
