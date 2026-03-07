@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 from typing import Optional
 from analysis import get_financial_health
+import streamlit.components.v1 as components
 
 # 自訂模組
 from config import (
@@ -46,20 +47,58 @@ def setup_page():
 # --- 在 Stock_Market.py 中替換這個函數 ---
 
 def render_ticker_tape():
-    """渲染頂部跑馬燈 """
-    # 獲取快取資料
+    """渲染頂部跑馬燈（iOS 股票 App 風格 + 100% 穩定渲染）"""
     items = get_ticker_tape_data()
     
     if not items:
+        st.title(LABELS["app_title"])
         return
 
-    # 組合 HTML 內容
     content = "".join(items)
     
-    # ⚠️ 關鍵修正：完全不換行，確保 Streamlit 100% 識別為 HTML
-    html = f'<div class="ticker-wrap"><div class="ticker">{content}</div></div>'
+    # 完整內嵌 HTML + CSS（解決 Streamlit 渲染失效問題）
+    ticker_html = f"""
+    <style>
+        .ticker-wrap {{
+            width: 100%;
+            overflow: hidden;
+            background-color: #000000;
+            border-bottom: 1px solid #333333;
+            padding: 8px 0;
+            white-space: nowrap;
+            box-sizing: border-box;
+            position: sticky;
+            top: 0;
+            z-index: 999;
+        }}
+        .ticker {{
+            display: inline-block;
+            animation: ticker 45s linear infinite;
+            padding-left: 100%;
+        }}
+        @keyframes ticker {{
+            0% {{ transform: translateX(0); }}
+            100% {{ transform: translateX(-100%); }}
+        }}
+        .ticker-item {{
+            display: inline-block;
+            padding: 0 2.2rem;
+            font-size: 0.95rem;
+            color: #cccccc;
+        }}
+    </style>
     
-    st.markdown(html, unsafe_allow_html=True)
+    <div class="ticker-wrap">
+        <div class="ticker">
+            {content}
+            {content}  <!-- 重複一次讓滾動無縫銜接 -->
+        </div>
+    </div>
+    """
+    
+    # 使用 components.html 強制渲染（比 st.markdown 更穩定）
+    components.html(ticker_html, height=48, scrolling=False)
+    
     st.title(LABELS["app_title"])
 
 
