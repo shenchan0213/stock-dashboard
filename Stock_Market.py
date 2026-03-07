@@ -48,42 +48,77 @@ def setup_page():
 # --- 在 Stock_Market.py 中替換這個函數 ---
 
 def render_watchlist_header():
-    """iOS 風格頂部 Sparkline Watchlist（迷你走勢圖 + 大數字價格）"""
-    # 可自訂想顯示的熱門標的（之後可做成可編輯 Watchlist）
+    """iOS 風格單一行水平跑馬燈（清晰、舒服、可左右滑動）"""
     watchlist = [
         ("^TWII", "台指"), ("NVDA", "NVDA"), ("TSM", "TSM(ADR)"),
         ("AAPL", "AAPL"), ("^GSPC", "S&P500"), ("BTC-USD", "BTC")
     ]
     
-    st.markdown("### 🌍 GLOBAL WATCHLIST")
-    cols = st.columns(len(watchlist))
+    st.markdown("###  GLOBAL ")
     
-    for i, (ticker, name) in enumerate(watchlist):
-        with cols[i]:
-            try:
-                df = get_history_data(ticker, period="5d", include_indicators=False)
-                if df is None or df.empty:
-                    st.metric(name, "N/A")
-                    continue
-                
-                current = df["Close"].iloc[-1]
-                prev = df["Close"].iloc[-2] if len(df) > 1 else current
-                change_pct = (current - prev) / prev * 100
-                
-                # 迷你走勢圖
-                fig = create_sparkline(df.set_index("Date"), name, change_pct)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                
-                # iOS 大數字價格 + 漲跌
-                color = "normal" if change_pct >= 0 else "inverse"
-                st.metric(
-                    label=f"**{name}**",
-                    value=f"{current:,.2f}",
-                    delta=f"{change_pct:+.2f}%",
-                    delta_color=color
-                )
-            except:
-                st.metric(name, "N/A")
+    # 單一行水平容器（可左右滑動 + 自動跑動效果）
+    html = """
+    <style>
+        .watchlist-scroll {
+            display: flex;
+            overflow-x: auto;
+            gap: 2rem;
+            padding: 12px 0;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+            background: #0e0e0e;
+            border-bottom: 1px solid #333;
+        }
+        .watchlist-item {
+            min-width: 180px;
+            text-align: center;
+            padding: 8px 12px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        .watchlist-item::-webkit-scrollbar { display: none; }
+    </style>
+    <div class="watchlist-scroll">
+    """
+    
+    for ticker, name in watchlist:
+        try:
+            df = get_history_data(ticker, period="5d", include_indicators=False)
+            if df is None or df.empty:
+                continue
+            current = df["Close"].iloc[-1]
+            prev = df["Close"].iloc[-2] if len(df) > 1 else current
+            change_pct = (current - prev) / prev * 100
+            color = "#00ff41" if change_pct >= 0 else "#ff0055"
+            
+            # 小 Sparkline（轉 base64 嵌入）
+            fig = create_sparkline(df.set_index("Date"), name, change_pct)
+            fig_bytes = fig.to_image(format="png", width=140, height=60)
+            import base64
+            spark_base64 = base64.b64encode(fig_bytes).decode()
+            
+            html += f"""
+            <div class="watchlist-item">
+                <img src="data:image/png;base64,{spark_base64}" style="width:140px; height:60px;">
+                <div style="font-size:1.1rem; font-weight:bold; color:{color}; margin:4px 0;">
+                    {name}
+                </div>
+                <div style="font-size:1.35rem; font-weight:700; color:#fff;">
+                    {current:,.2f}
+                </div>
+                <div style="font-size:0.95rem; color:{color};">
+                    {change_pct:+.2f}%
+                </div>
+            </div>
+            """
+        except:
+            pass
+    
+    html += "</div>"
+    
+    import streamlit.components.v1 as components
+    components.html(html, height=140, scrolling=True)
 
 
 # ==================== 2. 側邊欄設定 ====================
