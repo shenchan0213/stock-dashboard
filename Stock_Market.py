@@ -48,44 +48,55 @@ def setup_page():
 # --- 在 Stock_Market.py 中替換這個函數 ---
 
 def render_watchlist_header():
-    """iOS 風格單一行水平跑馬燈（清晰、舒服、可左右滑動）"""
+    """全新 iOS Yahoo Finance 風格 Watchlist（垂直列表 + 紅漲綠跌 + 陰影填充）"""
+    # 與 iOS 截圖一致的熱門標的（可自行增減）
     watchlist = [
-        ("^TWII", "台指"), ("NVDA", "NVDA"), ("TSM", "TSM(ADR)"),
-        ("AAPL", "AAPL"), ("^GSPC", "S&P500"), ("BTC-USD", "BTC")
+        ("^TWII", "加權指數", "台指"),
+        ("NVDA", "NVDA", "NVIDIA"),
+        ("TSM", "TSM(ADR)", "台積電 ADR"),
+        ("AAPL", "AAPL", "Apple"),
+        ("^GSPC", "S&P500", "標普指數"),
+        ("BTC-USD", "BTC", "比特幣")
     ]
     
-    st.markdown("###   WATCHLIST")
+    st.markdown("###  WATCHLIST")
     
-    # 單一行水平容器（可左右滑動）
-    cols = st.columns(len(watchlist))
-    
-    for i, (ticker, name) in enumerate(watchlist):
-        with cols[i]:
-            try:
-                df = get_history_data(ticker, period="5d", include_indicators=False)
-                if df is None or df.empty:
-                    st.metric(name, "N/A")
-                    continue
+    for ticker, name, full_name in watchlist:
+        try:
+            df = get_history_data(ticker, period="5d", include_indicators=False)
+            if df is None or df.empty:
+                continue
                 
-                current = df["Close"].iloc[-1]
-                prev = df["Close"].iloc[-2] if len(df) > 1 else current
-                change_pct = (current - prev) / prev * 100
-                
-                # 小 Sparkline（穩定版）
+            current = df["Close"].iloc[-1]
+            prev = df["Close"].iloc[-2] if len(df) > 1 else current
+            change_pct = (current - prev) / prev * 100
+            
+            # iOS 風格顏色
+            change_color = "#ff0055" if change_pct >= 0 else "#00ff41"   # 紅漲綠跌
+            box_bg = "rgba(255,0,85,0.15)" if change_pct >= 0 else "rgba(0,255,65,0.15)"
+            
+            # 單行卡片（與 iOS 截圖完全一致的排版）
+            col1, col2, col3 = st.columns([2.5, 3, 2])
+            with col1:
+                st.markdown(f"**{name}**  \n<small>{full_name}</small>", unsafe_allow_html=True)
+            with col2:
                 fig = create_sparkline(df.set_index("Date"), name, change_pct)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                
-                # 大數字 + 漲跌（iOS 風格）
-                color = "normal" if change_pct >= 0 else "inverse"
-                st.metric(
-                    label=f"**{name}**",
-                    value=f"{current:,.2f}",
-                    delta=f"{change_pct:+.2f}%",
-                    delta_color=color
-                )
-            except:
-                st.metric(name, "N/A")
-
+            with col3:
+                st.markdown(f"""
+                <div style="text-align:right;">
+                    <div style="font-size:1.35rem; font-weight:700; color:#fff;">{current:,.2f}</div>
+                    <div style="display:inline-block; padding:2px 10px; border-radius:6px; background:{box_bg}; 
+                                color:{change_color}; font-weight:bold; font-size:0.95rem;">
+                        {change_pct:+.2f}%
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")   # 分隔線（更像 iOS）
+            
+        except:
+            pass
 
 # ==================== 2. 側邊欄設定 ====================
 
