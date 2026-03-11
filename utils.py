@@ -1,39 +1,27 @@
 """
-utils.py — SHEN XIV
+utils.py — SHEN XIV（已全面遷移至 FMP）
 資料獲取、計算與處理工具函數
-
-修正項目：
-1. 裝飾器順序錯誤：cache 應在外、retry 在內（原本反了導致 retry 失效）
-2. get_intraday_data 沒有快取 → 加 ttl=60
-3. yf session 注入方式錯誤 → 改用正確的 yf.Ticker(session=) 方式
-4. find_stock_name_by_code 每次都全部遍歷 → 改用 reverse dict
-5. 移除無效的 yf.utils.get_yf_data 注入
 """
 
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import twstock
 from typing import Optional, Tuple
-from requests import Session
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
 
-# ==================== Session 設定（正確注入方式）====================
-_yf_session = Session()
-_yf_session.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    )
-})
+# ==================== 從 fmp_client 匯入 ====================
+from fmp_client import (
+    get_history_data_fmp,
+    get_intraday_data_fmp,
+    get_fundamentals_fmp,
+    get_watchlist_batch_fmp
+)
 
 # ==================== Retry 裝飾器 ====================
 _RETRY_CONDITION = retry_if_exception(
     lambda e: any(k in str(e).lower() for k in ["rate limit", "429", "too many", "connection"])
 )
 
-def retry_yfinance(func):
+def retry_fmp(func):
     """最多重試 4 次，等待 1→3→7→15 秒"""
     return retry(
         stop=stop_after_attempt(4),
@@ -48,11 +36,12 @@ def retry_yfinance(func):
 def init_session_state():
     """初始化 session state，建立台股代號雙向查詢表"""
     if "stock_map" not in st.session_state:
+        import twstock
         st.session_state.stock_map = {
             f"{code} {info.name}": code
             for code, info in twstock.codes.items()
         }
-    # 建立 reverse map（code → name）供快速查詢，原本是 O(N) 遍歷
+    # 建立 reverse map（code → name）供快速查詢
     if "stock_reverse_map" not in st.session_state:
         st.session_state.stock_reverse_map = {
             code: name_key
@@ -137,41 +126,7 @@ def _calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ==================== 內部 fetch 函數（含 retry）====================
-# 正確架構：cache 在外層，retry 在內層 fetch 函數
-# 原本 @retry_yfinance 在 @st.cache_data 外面，導致 retry 根本沒機會觸發
-
-@retry_yfinance
-def _fetch_history(ticker: str, period: str, interval: str) -> Optional[pd.DataFrame]:
-    """實際發出 yfinance 請求（retry 在這層）"""
-    df = yf.Ticker(ticker, session=_yf_session).history(
-        period=period, interval=interval, auto_adjust=True
-    )
-    return None if df.empty else df
-
-
-@retry_yfinance
-def _fetch_intraday(ticker: str) -> pd.DataFrame:
-    """盤中 1 分 K（retry 在這層）"""
-    df = yf.Ticker(ticker, session=_yf_session).history(
-        period="1d", interval="1m"
-    )
-    if df.empty:
-        df = yf.Ticker(ticker, session=_yf_session).history(
-            period="5d", interval="1m"
-        )
-        if not df.empty:
-            last_date = df.index.max().date()
-            df = df[df.index.date == last_date]
-    return df
-
-
-@retry_yfinance
-def _fetch_fundamentals(ticker: str) -> dict:
-    return yf.Ticker(ticker, session=_yf_session).info or {}
-
-
-# ==================== 公開資料獲取函數（cache 在最外層）====================
+# ==================== 公開資料獲取函數（已全面使用 FMP） ====================
 
 @st.cache_data(ttl=300)
 def get_history_data(
@@ -180,14 +135,12 @@ def get_history_data(
     interval: str = "1d",
     include_indicators: bool = True,
 ) -> Optional[pd.DataFrame]:
+    """歷史K線（呼叫 FMP）"""
     try:
-        df = _fetch_history(ticker, period, interval)
-        if df is None:
+        df = get_history_data_fmp(ticker, period, interval)
+        if df is None or df.empty:
             return None
 
-        df.reset_index(inplace=True)
-        if "Datetime" in df.columns:
-            df.rename(columns={"Datetime": "Date"}, inplace=True)
         if pd.api.types.is_datetime64_any_dtype(df["Date"]):
             df["Date"] = df["Date"].dt.tz_localize(None)
 
@@ -200,49 +153,29 @@ def get_history_data(
         return None
 
 
-@st.cache_data(ttl=60)      # 盤中每 60 秒更新一次
+@st.cache_data(ttl=60)
 def get_intraday_data(ticker: str) -> pd.DataFrame:
-    """盤中走勢（加上快取，避免每次 rerun 都重新抓）"""
+    """盤中走勢（呼叫 FMP）"""
     try:
-        return _fetch_intraday(ticker)
+        return get_intraday_data_fmp(ticker)
     except Exception:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=600)     # 基本面 10 分鐘更新一次
+@st.cache_data(ttl=600)
 def get_fundamentals(ticker: str) -> dict:
+    """基本面（呼叫 FMP）"""
     try:
-        return _fetch_fundamentals(ticker)
+        return get_fundamentals_fmp(ticker)
     except Exception:
         return {}
 
 
-@st.cache_data(ttl=300)     # 跑馬燈 5 分鐘更新一次（批次下載，速度快）
+@st.cache_data(ttl=300)
 def get_watchlist_batch(tickers: tuple) -> dict:
-    """
-    批次下載所有跑馬燈標的（一次請求取代原本的 N 次串行請求）
-    用 tuple 而非 list 作參數，因為 st.cache_data 需要 hashable 參數
-    """
+    """批次下載跑馬燈標的（呼叫 FMP）"""
     try:
-        symbols = " ".join(tickers)
-        data = yf.download(
-            symbols,
-            period="1mo",       # 抓一個月，sparkline 才有足夠資料
-            progress=False,
-            session=_yf_session,
-            auto_adjust=True,
-        )["Close"]
-
-        result = {}
-        for sym in tickers:
-            try:
-                series = (data[sym] if isinstance(data, pd.DataFrame)
-                          else data).dropna()
-                if len(series) >= 2:
-                    result[sym] = series.tolist()
-            except Exception:
-                continue
-        return result
+        return get_watchlist_batch_fmp(tickers)
     except Exception as e:
         print(f"Batch download error: {e}")
         return {}
