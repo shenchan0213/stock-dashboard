@@ -28,6 +28,7 @@ from chart_components import (
     create_intraday_chart,
     create_candlestick_chart,
     create_comparison_chart,
+    create_sparkline
 )
 
 
@@ -64,77 +65,46 @@ def _sparkline_svg(prices: list, is_up: bool) -> str:
     )
 
 
-def render_ticker_tape():
-    """
-    Yahoo Finance iOS 風格水平跑馬燈
-    - 批次下載（一次請求，取代 N 次串行）
-    - components.html() 避免 Streamlit sanitizer 截斷 HTML
-    """
-    watchlist = st.session_state.get("watchlist", [])
-    if not watchlist:
-        return
-
-    tickers   = tuple(t for t, _ in watchlist)
-    label_map = {t: l for t, l in watchlist}
-    batch     = get_watchlist_batch(tickers)
-
-    items_html = []
-    for sym, closes in batch.items():
-        if len(closes) < 2:
-            continue
-        label   = label_map.get(sym, sym)
-        current = closes[-1]
-        prev    = closes[-2]
-        chg_pct = (current - prev) / prev * 100
-        is_up   = chg_pct >= 0
-        color   = "#ff3b30" if is_up else "#34c759"
-        arrow   = "▲" if is_up else "▼"
-        bg      = "rgba(255,59,48,0.12)" if is_up else "rgba(52,199,89,0.12)"
-
-        if current >= 10000:
-            price_str = f"{current:,.0f}"
-        elif current >= 100:
-            price_str = f"{current:,.2f}"
-        else:
-            price_str = f"{current:.4f}"
-
-        svg     = _sparkline_svg(closes[-30:], is_up)
-        svg_b64 = base64.b64encode(svg.encode()).decode()
-        svg_uri = f"data:image/svg+xml;base64,{svg_b64}"
-
-        items_html.append(f"""
-        <div style="display:inline-flex;align-items:center;gap:10px;
-                    padding:5px 16px 5px 12px;margin:0 6px;
-                    background:{bg};border-radius:10px;
-                    border:1px solid {color}44;white-space:nowrap;">
-          <div>
-            <div style="font-size:0.7rem;color:#888;line-height:1.1;">{label}</div>
-            <div style="font-size:1rem;font-weight:700;color:#fff;line-height:1.4;">{price_str}</div>
-          </div>
-          <img src="{svg_uri}" width="80" height="32" style="vertical-align:middle;"/>
-          <div style="font-size:0.85rem;font-weight:700;color:{color};">
-            {arrow} {abs(chg_pct):.2f}%
-          </div>
-        </div>""")
-
-    if not items_html:
-        return
-
-    content = "".join(items_html)
-    html = f"""<!DOCTYPE html><html><head><style>
-      body{{margin:0;padding:0;background:#000;overflow:hidden;}}
-      .wrap{{width:100%;overflow:hidden;background:#000;
-             border-bottom:1px solid #1e1e1e;padding:7px 0;}}
-      .track{{display:inline-flex;width:max-content;
-              animation:scroll 55s linear infinite;}}
-      .track:hover{{animation-play-state:paused;cursor:default;}}
-      @keyframes scroll{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
-    </style></head><body>
-      <div class="wrap"><div class="track">{content}{content}</div></div>
-    </body></html>"""
-    components.html(html, height=60, scrolling=False)
-
-
+def render_watchlist_header():
+    """最穩定版 iOS 風格 Watchlist（純 st.columns，永遠顯示）"""
+    watchlist = [
+        ("^TWII", "加權指數"),
+        ("NVDA", "NVDA"),
+        ("TSM", "TSM(ADR)"),
+        ("AAPL", "AAPL")
+    ]
+    
+    st.markdown("### 🌍 GLOBAL WATCHLIST")
+    
+    for ticker, name in watchlist:
+        try:
+            df = get_history_data(ticker, period="5d", include_indicators=False)
+            if df is None or df.empty:
+                st.metric(name, "N/A")
+                continue
+                
+            current = df["Close"].iloc[-1]
+            prev = df["Close"].iloc[-2] if len(df) > 1 else current
+            change_pct = (current - prev) / prev * 100
+            
+            line_color = "#00ff41" if change_pct >= 0 else "#ff0055"
+            
+            col1, col2, col3 = st.columns([1.8, 3, 2])
+            with col1:
+                st.markdown(f"**{name}**")
+            with col2:
+                fig = create_sparkline(df.set_index("Date"), name, change_pct)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            with col3:
+                st.metric(
+                    label="",
+                    value=f"{current:,.2f}",
+                    delta=f"{change_pct:+.2f}%",
+                    delta_color="normal" if change_pct >= 0 else "inverse"
+                )
+            st.markdown("---")
+        except:
+            st.metric(name, "N/A")
 # ==================== 3. 側邊欄 ====================
 
 def setup_sidebar() -> tuple:
@@ -335,28 +305,25 @@ def _display_health_panel(health_data: dict):
 
 # ==================== 5. 模式邏輯 ====================
 
-def mode_realtime(target_ticker: str, display_name: str,
-                  market_type: str, auto_refresh: bool):
+def mode_realtime(target_ticker: str, display_name: str, market_type: str, auto_refresh: bool):
     st.subheader(f"📡 LIVE FEED // {display_name}")
 
-    if auto_refresh:
-        st.info("⟳ 自動刷新已啟用，每 60 秒更新一次")
-        time.sleep(60)
-        st.rerun()
-
     with st.spinner("CONNECTING TO MARKET..."):
-        df   = get_intraday_data(target_ticker)
+        df = get_intraday_data(target_ticker)
         info = get_fundamentals(target_ticker)
 
-    if df.empty:
-        st.warning(ERROR_MESSAGES["no_data"].format(name=display_name))
-        return
+    # 即使沒有盤中資料，也顯示最後收盤
+    if info:
+        display_fundamentals(info, target_ticker)
+    else:
+        st.warning("🛑 市場已收盤，目前顯示最後交易日數據")
 
-    display_fundamentals(info, target_ticker)
-
-    fig = create_intraday_chart(df, f"{display_name} // INTRADAY")
-    if fig:
-        st.plotly_chart(fig, use_container_width=True)
+    if not df.empty:
+        fig = create_intraday_chart(df, f"{display_name} // INTRADAY")
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("📅 非交易時間，無法顯示即時走勢圖")
 
     if market_type == "🇹🇼 台灣個股":
         display_order_book(target_ticker)
@@ -463,7 +430,7 @@ def mode_comparison(target_ticker: str, display_name: str):
 def main():
     setup_page()
     init_session_state()
-    render_ticker_tape()
+    render_watchlist_header()()
 
     market_type, mode, target_ticker, display_name, auto_refresh = setup_sidebar()
 
