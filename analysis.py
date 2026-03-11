@@ -1,39 +1,10 @@
 """
-analysis.py — SHEN XIV
-財務健康分析引擎
-
-關鍵修正：移除對 utils 的 retry_yfinance / _yf_session 依賴
-utils 已全面遷移 FMP，不再有 yfinance。
-analysis.py 自己管理 Yahoo session（台股 + FMP 備援用）。
+analysis.py — SHEN XIV（已全面遷移至 FMP，移除 yfinance）
 """
 
-import yfinance as yf
 import requests
 import streamlit as st
 from typing import Optional
-from requests import Session
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
-
-# ── 自己的 yfinance session（不再從 utils import）─────────────
-_yf_session = Session()
-_yf_session.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    )
-})
-
-def _retry_yf(func):
-    return retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential_jitter(initial=1, max=10),
-        retry=retry_if_exception(
-            lambda e: any(k in str(e).lower() for k in ["rate limit", "429", "too many"])
-        ),
-        reraise=True,
-    )(func)
-
 
 # ==================== 產業別 PE 基準表 ====================
 SECTOR_PE_BENCHMARKS = {
@@ -49,36 +20,35 @@ SECTOR_MARGIN_BENCHMARKS = {
     "Utilities": 0.12, "Real Estate": 0.20, "default": 0.10,
 }
 
-
-# ==================== 主入口 ====================
-
 def get_financial_health(ticker: str) -> Optional[dict]:
+    """完全使用 FMP（支援 .TW、^TWII、美股等）"""
     api_key = st.secrets.get("FMP_API_KEY", "").strip()
-    if ".TW" in ticker.upper():
-        return _get_data_from_yahoo(ticker)
-    if api_key:
-        result = _try_fmp_api(ticker, api_key)
-        if result:
-            return result
-    return _get_data_from_yahoo(ticker)
+    if not api_key:
+        st.error("❌ FMP_API_KEY 未設定")
+        return None
 
-
-def _try_fmp_api(ticker: str, api_key: str) -> Optional[dict]:
     try:
         clean = ticker.replace("^", "").upper()
+        # key-metrics + profile
         m_resp = requests.get(
             f"https://financialmodelingprep.com/api/v3/key-metrics-ttm/{clean}?apikey={api_key}",
-            timeout=7)
+            timeout=7
+        )
         p_resp = requests.get(
             f"https://financialmodelingprep.com/api/v3/profile/{clean}?apikey={api_key}",
-            timeout=7)
+            timeout=7
+        )
+
         m_data = m_resp.json() if m_resp.ok else []
         p_data = p_resp.json() if p_resp.ok else []
+
         if not m_data or not isinstance(m_data, list):
             return None
+
         m = m_data[0]
         sector = p_data[0].get("sector", "default") if p_data else "default"
-        return _evaluate_metrics({
+
+        analysis = {
             "sector": sector,
             "pe_status": "N/A", "roe_status": "N/A", "margin_status": "N/A",
             "debt_status": "N/A", "growth_status": "N/A",
@@ -93,38 +63,11 @@ def _try_fmp_api(ticker: str, api_key: str) -> Optional[dict]:
                 "Current Ratio": m.get("currentRatioTTM"),
                 "Revenue Growth": m.get("revenueGrowthTTM"),
             }
-        })
-    except Exception as e:
-        print(f"⚠️ FMP 失敗 ({ticker}): {e}")
-        return None
+        }
+        return _evaluate_metrics(analysis)
 
-
-@_retry_yf
-def _get_data_from_yahoo(ticker: str) -> Optional[dict]:
-    try:
-        stock = yf.Ticker(ticker, session=_yf_session)
-        info  = stock.info or {}
-        if not info or len(info) < 5:
-            raise ValueError("Yahoo 回傳空資料")
-        sector = info.get("sector", "default") or "default"
-        return _evaluate_metrics({
-            "sector": sector,
-            "pe_status": "N/A", "roe_status": "N/A", "margin_status": "N/A",
-            "debt_status": "N/A", "growth_status": "N/A",
-            "health_score": 0, "insight": "",
-            "data": {
-                "PE": info.get("trailingPE"), "Forward PE": info.get("forwardPE"),
-                "PEG": info.get("pegRatio"), "ROE": info.get("returnOnEquity"),
-                "Profit Margin": info.get("profitMargins"),
-                "Gross Margin": info.get("grossMargins"),
-                "Beta": info.get("beta"),
-                "D/E Ratio": info.get("debtToEquity"),
-                "Current Ratio": info.get("currentRatio"),
-                "Revenue Growth": info.get("revenueGrowth"),
-            }
-        })
     except Exception as e:
-        print(f"❌ Yahoo 失敗 ({ticker}): {e}")
+        st.error(f"FMP 財務分析失敗 ({ticker}): {e}")
         return None
 
 
