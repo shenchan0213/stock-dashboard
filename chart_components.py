@@ -159,38 +159,13 @@ def create_comparison_chart(df: pd.DataFrame, name_main: str, name_bench: str) -
 
 # ==================== 新增：Sparkline 迷你走勢圖 ====================
 def create_sparkline(df: pd.DataFrame, symbol: str, change_pct: float) -> go.Figure:
-    """生成 iOS App 風格的超小型 Sparkline（高度 60px）"""
-    color = COLORS["primary"] if change_pct >= 0 else COLORS["danger"]
+    """iOS 風格 Sparkline（高 40px、明顯波動、上漲綠 / 下跌紅 + 陰影填充）"""
+    line_color = "#00ff41" if change_pct >= 0 else "#ff0055"   # 上漲綠 / 下跌紅
+    fill_color = "rgba(0, 255, 65, 0.22)" if change_pct >= 0 else "rgba(255, 0, 85, 0.22)"
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df.index,
-        y=df["Close"],
-        mode="lines",
-        line=dict(color=color, width=2.5),
-        fill="tozeroy",
-        fillcolor="rgba(0,255,65,0.08)" if change_pct >= 0 else "rgba(255,0,85,0.08)"
-    ))
-    
-    fig.update_layout(
-        height=60,
-        width=130,
-        margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        showlegend=False,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-    )
-    return fig
-
-# ==================== 新增：iOS Sparkline 迷你走勢圖 ====================
-# ==================== iOS 風格 Sparkline（有陰影填充 + 正確漲跌顏色） ====================
-def create_sparkline(df: pd.DataFrame, symbol: str, change_pct: float) -> go.Figure:
-    """完全模仿 iOS Yahoo Finance 的小趨勢圖"""
-    # 漲跌顏色：上升紅色，下降綠色（與 iOS 截圖一致）
-    line_color = "#ff0055" if change_pct >= 0 else "#00ff41"   # 紅 / 綠
-    fill_color = "rgba(255, 0, 85, 0.25)" if change_pct >= 0 else "rgba(0, 255, 65, 0.25)"
+    min_p = df["Close"].min()
+    max_p = df["Close"].max()
+    padding = (max_p - min_p) * 0.012
     
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -198,18 +173,18 @@ def create_sparkline(df: pd.DataFrame, symbol: str, change_pct: float) -> go.Fig
         y=df["Close"],
         mode="lines",
         line=dict(color=line_color, width=2.8),
-        fill="tozeroy",                    # ← 關鍵：下方填充陰影
+        fill="tozeroy",
         fillcolor=fill_color
     ))
     
     fig.update_layout(
-        height=68,
+        height=40,
         width=140,
         margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
-        xaxis=dict(visible=False, range=[df.index[0], df.index[-1]]),
-        yaxis=dict(visible=False, autorange=True),   # 自動縮放，讓波動更明顯
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, range=[min_p - padding, max_p + padding])
     )
     return fig
