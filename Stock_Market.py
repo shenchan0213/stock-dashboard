@@ -43,60 +43,144 @@ def setup_page():
     st.set_page_config(page_title="SHEN XIV - TACTICAL", layout="wide")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Stock_Market.py 裡的 render_ticker_tape 替換成這個
-
-# --- 在 Stock_Market.py 中替換這個函數 ---
-
-def render_watchlist_header():
-    """全新 iOS Yahoo Finance 風格 Watchlist（垂直列表 + 紅漲綠跌 + 陰影填充）"""
-    # 與 iOS 截圖一致的熱門標的（可自行增減）
+def render_ticker_tape():
+    """
+    Yahoo Finance / iOS 風格水平跑馬燈
+    - 紅漲綠跌（台灣慣例）
+    - 含 Sparkline 迷你走勢圖
+    - 無縫循環滾動動畫
+    """
     watchlist = [
-        ("^TWII", "加權指數", "台指"),
-        ("NVDA", "NVDA", "NVIDIA"),
-        ("TSM", "TSM(ADR)", "台積電 ADR"),
-        ("AAPL", "AAPL", "Apple"),
-        ("^GSPC", "S&P500", "標普指數"),
-        ("BTC-USD", "BTC", "比特幣")
+        ("^TWII",   "加權指數"),
+        ("NVDA",    "NVDA"),
+        ("TSM",     "TSM(ADR)"),
+        ("AAPL",    "AAPL"),
+        ("^GSPC",   "S&P500"),
+        ("BTC-USD", "BTC"),
+        ("^IXIC",   "NASDAQ"),
+        ("^SOX",    "PHLX半導"),
+        ("DX-Y.NYB","DXY"),
+        ("GC=F",    "黃金"),
     ]
-    
-    st.markdown("###  WATCHLIST")
-    
-    for ticker, name, full_name in watchlist:
+
+    import plotly.graph_objects as go
+    import io, base64
+
+    def sparkline_svg(prices, is_up: bool) -> str:
+        """產生超輕量 SVG 迷你折線圖（不依賴 Plotly，速度快 10x）"""
+        if len(prices) < 2:
+            return ""
+        W, H = 80, 32
+        mn, mx = min(prices), max(prices)
+        rng = mx - mn if mx != mn else 1
+        pts = []
+        for i, p in enumerate(prices):
+            x = i / (len(prices) - 1) * W
+            y = H - ((p - mn) / rng) * H
+            pts.append(f"{x:.1f},{y:.1f}")
+        color = "#ff3b30" if is_up else "#34c759"   # 紅漲綠跌（iOS 標準色）
+        poly = " ".join(pts)
+        # 填充區域
+        fill_pts = f"0,{H} " + poly + f" {W},{H}"
+        fill_color = "rgba(255,59,48,0.2)" if is_up else "rgba(52,199,89,0.2)"
+        svg = (
+            f'<svg width="{W}" height="{H}" xmlns="http://www.w3.org/2000/svg">'
+            f'<polygon points="{fill_pts}" fill="{fill_color}"/>'
+            f'<polyline points="{poly}" fill="none" stroke="{color}" stroke-width="1.8" stroke-linejoin="round"/>'
+            f'</svg>'
+        )
+        return svg
+
+    # ── 取得資料 ──────────────────────────────────────────
+    items_html = []
+    for ticker, label in watchlist:
         try:
             df = get_history_data(ticker, period="5d", include_indicators=False)
-            if df is None or df.empty:
+            if df is None or df.empty or len(df) < 2:
                 continue
-                
-            current = df["Close"].iloc[-1]
-            prev = df["Close"].iloc[-2] if len(df) > 1 else current
-            change_pct = (current - prev) / prev * 100
-            
-            # iOS 風格顏色
-            change_color = "#ff0055" if change_pct >= 0 else "#00ff41"   # 紅漲綠跌
-            box_bg = "rgba(255,0,85,0.15)" if change_pct >= 0 else "rgba(0,255,65,0.15)"
-            
-            # 單行卡片（與 iOS 截圖完全一致的排版）
-            col1, col2, col3 = st.columns([2.5, 3, 2])
-            with col1:
-                st.markdown(f"**{name}**  \n<small>{full_name}</small>", unsafe_allow_html=True)
-            with col2:
-                fig = create_sparkline(df.set_index("Date"), name, change_pct)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-            with col3:
-                st.markdown(f"""
-                <div style="text-align:right;">
-                    <div style="font-size:1.35rem; font-weight:700; color:#fff;">{current:,.2f}</div>
-                    <div style="display:inline-block; padding:2px 10px; border-radius:6px; background:{box_bg}; 
-                                color:{change_color}; font-weight:bold; font-size:0.95rem;">
-                        {change_pct:+.2f}%
-                    </div>
+            closes = df["Close"].dropna().tolist()
+            current = closes[-1]
+            prev    = closes[-2]
+            chg_pct = (current - prev) / prev * 100
+            is_up   = chg_pct >= 0
+
+            # 顏色（紅漲綠跌）
+            color  = "#ff3b30" if is_up else "#34c759"
+            arrow  = "▲" if is_up else "▼"
+            bg     = "rgba(255,59,48,0.12)" if is_up else "rgba(52,199,89,0.12)"
+
+            # 取最近 30 個收盤價做 Sparkline
+            spark_prices = closes[-30:]
+            svg = sparkline_svg(spark_prices, is_up)
+            svg_b64 = base64.b64encode(svg.encode()).decode()
+            svg_uri = f"data:image/svg+xml;base64,{svg_b64}"
+
+            # 格式化價格
+            if current >= 10000:
+                price_str = f"{current:,.0f}"
+            elif current >= 100:
+                price_str = f"{current:,.2f}"
+            else:
+                price_str = f"{current:.4f}"
+
+            item = f"""
+            <div style="
+                display:inline-flex; align-items:center; gap:10px;
+                padding:6px 18px 6px 14px;
+                margin:0 6px;
+                background:{bg};
+                border-radius:10px;
+                border:1px solid {color}33;
+                white-space:nowrap;
+                vertical-align:middle;
+            ">
+                <!-- 名稱 -->
+                <div>
+                    <div style="font-size:0.75rem; color:#999; line-height:1;">{label}</div>
+                    <div style="font-size:1.05rem; font-weight:700; color:#fff; line-height:1.4;">{price_str}</div>
                 </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("---")   # 分隔線（更像 iOS）
-            
-        except:
-            pass
+                <!-- Sparkline -->
+                <img src="{svg_uri}" width="80" height="32" style="vertical-align:middle;"/>
+                <!-- 漲跌幅 -->
+                <div style="
+                    font-size:0.9rem; font-weight:700; color:{color};
+                    background:{bg}; padding:2px 8px; border-radius:6px;
+                ">{arrow} {abs(chg_pct):.2f}%</div>
+            </div>
+            """
+            items_html.append(item)
+        except Exception:
+            continue
+
+    if not items_html:
+        return  # 無資料時靜默跳過
+
+    # ── 產生 HTML（雙份讓動畫無縫循環）──────────────────
+    content = "".join(items_html)
+    html = f"""
+    <div style="
+        width:100%; overflow:hidden;
+        background:#000;
+        border-bottom:1px solid #222;
+        padding:8px 0;
+        position:sticky; top:0; z-index:999;
+    ">
+        <div style="
+            display:flex; width:max-content;
+            animation: ticker_scroll 60s linear infinite;
+        " id="ticker_inner">
+            {content}{content}
+        </div>
+    </div>
+    <style>
+    @keyframes ticker_scroll {{
+        0%   {{ transform: translateX(0); }}
+        100% {{ transform: translateX(-50%); }}
+    }}
+    #ticker_inner:hover {{ animation-play-state: paused; }}
+    </style>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 # ==================== 2. 側邊欄設定 ====================
 
@@ -402,7 +486,7 @@ def main():
     setup_page()
     
     # 2. 渲染跑馬燈 (必須在 setup_page 之後)
-    render_watchlist_header()
+    render_ticker_tape()
 
     # 3. 初始化狀態
     init_session_state()
